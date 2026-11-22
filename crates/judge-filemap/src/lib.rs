@@ -70,6 +70,22 @@ pub struct Impact {
     pub historical_ambiguities: Vec<NodeAmbiguity>,
     pub limits: Vec<String>,
 }
+/// Decode the complete public impact before projecting fields used by projects and costs.
+pub fn impact_summary(input: impl std::io::Read) -> Result<Value, serde_json::Error> {
+    // The judge protocol hands its consumers a JSON value. Decode from that same
+    // representation so a rejected field keeps the original Serde diagnostic.
+    let value: Value = serde_json::from_reader(input)?;
+    let impact: Impact = serde_json::from_value(value)?;
+    Ok(json!({
+        "schema": impact.schema,
+        "delta": impact.delta,
+        "reached": impact.closure.reached.into_keys().collect::<Vec<_>>(),
+        "required_tests": impact.required_tests.into_iter().map(|test| test.node).collect::<Vec<_>>(),
+        "tests": impact.tests,
+        "retired_tests": impact.retired_tests,
+    }))
+}
+
 /// Read explicit edges. Consistency adapters may consume this inventory; it
 /// never discovers an input or creates an authoritative dependency.
 pub fn edges(r: &Registrations) -> BTreeSet<Edge> {
