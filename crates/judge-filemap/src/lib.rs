@@ -1,0 +1,584 @@
+//! Candidate FILEMAP impact policy. No operation execution, retirement or cost verdicts.
+pub mod graph;
+mod records;
+#[allow(unexpected_cfgs)]
+pub mod verified_graph;
+mod workflow;
+use chrono_harness::{
+    facts,
+    wire::{Delta, Finding, Request, Response, Status, append_finding},
+};
+use chrono_judge_registration::{NodeKind, Registrations};
+use graph::{Closure, Edge, EdgeKind, Origin, Seed, UnionEdge};
+pub use records::{Change, Record, RecordPair};
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+use std::collections::{BTreeMap, BTreeSet};
+use verified_graph::valid_types;
+
+pub const IMPACT_SCHEMA: &str = "chrono-filemap-impact/v6";
+/// Complete endpoint definitions; zero is absent, several are ambiguous.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NodePair {
+    pub base_definitions: Vec<NodeDefinition>,
+    pub candidate_definitions: Vec<NodeDefinition>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NodeDefinition {
+    pub identity: String,
+    pub value: Value,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NodeAmbiguity {
+    pub node: String,
+    pub endpoint: String,
+    pub definitions: Vec<String>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RequiredTest {
+    pub node: String,
+    pub candidate_present: bool,
+    pub execution_edges: Vec<Edge>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct JudgeSelection {
+    pub node: String,
+    pub triggers: Vec<Edge>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EdgeProblem {
+    pub edge: Edge,
+    pub endpoint: String,
+    pub message: String,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Impact {
+    pub schema: String,
+    pub workflow: Value,
+    pub delta: Vec<Delta>,
+    pub records: BTreeMap<String, RecordPair>,
+    pub changes: Vec<Change>,
+    pub nodes: BTreeMap<String, NodePair>,
+    pub edges: Vec<UnionEdge>,
+    pub seed_causes: Vec<Seed>,
+    pub closure: Closure,
+    pub tests: Vec<String>,
+    pub retired_tests: Vec<String>,
+    pub required_tests: Vec<RequiredTest>,
+    pub judges: Vec<JudgeSelection>,
+    pub historical_context: Vec<EdgeProblem>,
+    pub historical_ambiguities: Vec<NodeAmbiguity>,
+    pub limits: Vec<String>,
+}
+/// Read explicit edges. Consistency adapters may consume this inventory; it
+/// never discovers an input or creates an authoritative dependency.
+pub fn edges(r: &Registrations) -> BTreeSet<Edge> {
+    let mut out = BTreeSet::new();
+    let mut add = |from: &str, e: &Value| {
+        out.insert(Edge {
+            from: from.into(),
+            kind: serde_json::from_value(e["kind"].clone()).unwrap(),
+            to: e["to"].as_str().unwrap().into(),
+        });
+    };
+    for f in r.filemap()["files"].as_array().unwrap() {
+        for e in f["edges"].as_array().unwrap() {
+            add(&format!("file:{}", f["path"].as_str().unwrap()), e);
+        }
+    }
+    for e in r.filemap()["project_edges"].as_array().unwrap() {
+        add(e["from"].as_str().unwrap(), e);
+    }
+    out
+}
+/// Pure declaration-level impact. External input records are compared, not retained input bytes.
+/// Callers must supply factual, complete DELTA; the judge entrypoint binds it to fixed Git objects.
+pub fn produce(
+    base: &Registrations,
+    candidate: &Registrations,
+    delta: &[Delta],
+) -> (Impact, Vec<Finding>) {
+    produce_with_documents(
+        base,
+        candidate,
+        delta,
+        &[
+            chrono_judge_mixed::registry_documents(base),
+            chrono_judge_mixed::registry_documents(candidate),
+        ],
+    )
+}
+/// Named semantic inputs are explicit; no file discovery or missing-input fallback.
+pub fn produce_with_documents(
+    base: &Registrations,
+    candidate: &Registrations,
+    delta: &[Delta],
+    documents: &[chrono_judge_mixed::Documents; 2],
+) -> (Impact, Vec<Finding>) {
+    produce_environment(base, candidate, delta, None, documents)
+}
+/// Effective-input impact for validated retained endpoint facts. Declarations and
+/// effective values use the same explicit environment nodes; no edges are inferred.
+pub fn produce_with_inputs(
+    base: &Registrations,
+    candidate: &Registrations,
+    delta: &[Delta],
+    effective_inputs: &Value,
+) -> Result<(Impact, Vec<Finding>), String> {
+    produce_with_inputs_and_documents(
+        base,
+        candidate,
+        delta,
+        effective_inputs,
+        &[
+            chrono_judge_mixed::registry_documents(base),
+            chrono_judge_mixed::registry_documents(candidate),
+        ],
+    )
+}
+pub fn produce_with_inputs_and_documents(
+    base: &Registrations,
+    candidate: &Registrations,
+    delta: &[Delta],
+    effective_inputs: &Value,
+    documents: &[chrono_judge_mixed::Documents; 2],
+) -> Result<(Impact, Vec<Finding>), String> {
+    let environments = chrono_judge_registration::inputs::effective_environments(
+        effective_inputs,
+        base,
+        candidate,
+    )?;
+    Ok(produce_environment(
+        base,
+        candidate,
+        delta,
+        environments.as_ref(),
+        documents,
+    ))
+}
+fn produce_environment(
+    base: &Registrations,
+    candidate: &Registrations,
+    delta: &[Delta],
+    environments: Option<&[BTreeMap<String, String>; 2]>,
+    documents: &[chrono_judge_mixed::Documents; 2],
+) -> (Impact, Vec<Finding>) {
+    let an = base.node_data();
+    let bn = candidate.node_data();
+    let a = records::inventory(base, &an, environments.map(|p| &p[0]));
+    let b = records::inventory(candidate, &bn, environments.map(|p| &p[1]));
+    let mut findings = vec![];
+    let workflow = match workflow::select(base, candidate, delta, [&a, &b], documents) {
+        Ok(selection) => selection,
+        Err(message) => {
+            findings.push(Finding {
+                code: message
+                    .split(':')
+                    .next()
+                    .filter(|s| s.starts_with("E_"))
+                    .unwrap_or("E_WORKFLOW_INPUT")
+                    .into(),
+                level: "error".into(),
+                message,
+                delta_refs: vec!["/request".into()],
+                causes: vec![],
+            });
+            Value::Null
+        }
+    };
+    let mut records = BTreeMap::new();
+    let mut changes = vec![];
+    let mut seeds = BTreeSet::new();
+    let seed = |node: String, reference: String, reason: &str| Seed {
+        id: serde_json::to_string(&json!([reference, reason, node])).unwrap(),
+        node,
+        reference,
+        reason: reason.into(),
+    };
+    for d in delta {
+        seeds.insert(seed(
+            format!("file:{}", d.path),
+            d.path.clone(),
+            "delta-path",
+        ));
+    }
+    for id in a.keys().chain(b.keys()).collect::<BTreeSet<_>>() {
+        let av = a.get(id);
+        let bv = b.get(id);
+        let mut fields = vec![];
+        records::changed_fields(av.map(|r| &r.value), bv.map(|r| &r.value), "", &mut fields);
+        // Registry relocation is an input change even when the record's value is identical.
+        if av.zip(bv).is_some_and(|(a, b)| a.path != b.path) {
+            fields.push("/$registry_path".into());
+        }
+        if !fields.is_empty() {
+            for record in av.into_iter().chain(bv) {
+                for target in &record.targets {
+                    seeds.insert(seed(target.clone(), id.clone(), "record-change"));
+                }
+            }
+            changes.push(Change {
+                record: id.clone(),
+                fields,
+            });
+        }
+        records.insert(
+            id.clone(),
+            RecordPair {
+                base: av.cloned(),
+                candidate: bv.cloned(),
+            },
+        );
+    }
+    let declared_ae = edges(base);
+    let declared_be = edges(candidate);
+    let mut ae = declared_ae.clone();
+    let mut be = declared_be.clone();
+    ae.extend(workflow::edges(&workflow, "base"));
+    be.extend(workflow::edges(&workflow, "candidate"));
+    let edges = graph::union(&ae, &be);
+    for e in ae.symmetric_difference(&be) {
+        let file_record = e
+            .from
+            .strip_prefix("file:")
+            .map(|p| format!("/records/filemap/files/{}", records::escape(p)));
+        let declared_on_file = [base, candidate].iter().any(|r| {
+            r.filemap()["files"].as_array().unwrap().iter().any(|f| {
+                format!("file:{}", f["path"].as_str().unwrap()) == e.from
+                    && f["edges"].as_array().unwrap().iter().any(|row| {
+                        row["to"] == e.to && row["kind"] == serde_json::to_value(e.kind).unwrap()
+                    })
+            })
+        });
+        let reference = file_record
+            .filter(|_| declared_on_file)
+            .or_else(|| workflow::reference(&workflow, e))
+            .unwrap_or_else(|| {
+                format!(
+                    "/records/filemap/project_edges/{}",
+                    records::escape(
+                        &serde_json::to_string(&json!([e.from, e.kind, e.to])).unwrap()
+                    )
+                )
+            });
+        for node in [&e.from, &e.to] {
+            seeds.insert(seed(node.clone(), reference.clone(), "edge-change"));
+        }
+    }
+    let seeds: Vec<_> = seeds.into_iter().collect();
+    let closure = graph::closure(&edges, &seeds);
+    let definitions = |view: Option<&chrono_judge_registration::NodeView<'_>>| {
+        view.into_iter()
+            .flat_map(|v| &v.definitions)
+            .map(|d| NodeDefinition {
+                identity: d.identity.clone(),
+                value: d.value.clone(),
+            })
+            .collect()
+    };
+    let nodes = an
+        .keys()
+        .chain(bn.keys())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .map(|id| {
+            (
+                id.clone(),
+                NodePair {
+                    base_definitions: definitions(an.get(id)),
+                    candidate_definitions: definitions(bn.get(id)),
+                },
+            )
+        })
+        .collect();
+    let mut historical_context = vec![];
+    let mut historical_ambiguities = vec![];
+    for (endpoint, inventory) in [("base", &an), ("candidate", &bn)] {
+        for (node, view) in inventory {
+            if view.definitions.len() <= 1 {
+                continue;
+            }
+            let ambiguity = NodeAmbiguity {
+                node: node.clone(),
+                endpoint: endpoint.into(),
+                definitions: view
+                    .definitions
+                    .iter()
+                    .map(|d| d.identity.clone())
+                    .collect(),
+            };
+            if let Some(causes) = closure.reached.get(node) {
+                if endpoint == "base"
+                    && chrono_judge_registration::ambiguity_repaired(
+                        candidate,
+                        node,
+                        &ambiguity.definitions,
+                    )
+                {
+                    historical_ambiguities.push(ambiguity);
+                    continue;
+                }
+                let cause = causes.first().unwrap();
+                let seed = verified_graph::seed_by_id(&seeds, cause).unwrap();
+                let mut witness = vec![seed.node.clone()];
+                witness.extend(
+                    closure
+                        .witness(cause, node)
+                        .unwrap()
+                        .iter()
+                        .map(|e| e.to.clone()),
+                );
+                findings.push(Finding {
+                    code: "E_NODE_AMBIGUOUS".into(),
+                    level: "error".into(),
+                    message: format!(
+                        "{endpoint}: ambiguous node {node}: {:?}",
+                        ambiguity.definitions
+                    ),
+                    delta_refs: vec![seed.reference.clone()],
+                    causes: witness,
+                });
+            } else {
+                historical_ambiguities.push(ambiguity);
+            }
+        }
+    }
+    for e in &edges {
+        for (endpoint, inventory) in [("base", &an), ("candidate", &bn)] {
+            if matches!(
+                (e.origin, endpoint),
+                (Origin::Base, "candidate") | (Origin::Candidate, "base")
+            ) {
+                continue;
+            }
+            let edge = &e.edge;
+            // Workflow conditions refer to this DELTA's union of paths. A new or
+            // deleted trigger can require tests declared at the other endpoint.
+            // Ordinary FILEMAP edges retain their endpoint-local validation.
+            let declared = if endpoint == "base" {
+                &declared_ae
+            } else {
+                &declared_be
+            };
+            let from = inventory.get(&edge.from).or_else(|| {
+                if !declared.contains(edge) && workflow::reference(&workflow, edge).is_some() {
+                    an.get(&edge.from).or_else(|| bn.get(&edge.from))
+                } else {
+                    None
+                }
+            });
+            let message = match (from, inventory.get(&edge.to)) {
+                (Some(from), Some(to)) if !valid_types(edge.kind, from.kind, to.kind) => {
+                    Some("invalid typed edge endpoints".to_string())
+                }
+                (None, _) => Some(format!("missing source node {}", edge.from)),
+                (_, None) => Some(format!("missing target node {}", edge.to)),
+                _ => None,
+            };
+            if let Some(message) = message {
+                let problem = EdgeProblem {
+                    edge: edge.clone(),
+                    endpoint: endpoint.into(),
+                    message: message.clone(),
+                };
+                let reached = closure
+                    .reached
+                    .get(&edge.from)
+                    .map(|s| (&edge.from, s))
+                    .or_else(|| closure.reached.get(&edge.to).map(|s| (&edge.to, s)));
+                if let Some((node, causes)) = reached {
+                    let cause = causes.first().unwrap();
+                    let seed = verified_graph::seed_by_id(&seeds, cause).unwrap();
+                    let path = closure.witness(cause, node).unwrap();
+                    let mut witness = vec![seed.node.clone()];
+                    witness.extend(path.iter().map(|e| e.to.clone()));
+                    if node == &edge.from {
+                        witness.push(edge.to.clone());
+                    }
+                    findings.push(Finding {
+                        code: if message.starts_with("missing") {
+                            "E_DANGLING_EDGE"
+                        } else {
+                            "E_EDGE_TYPE"
+                        }
+                        .into(),
+                        level: "error".into(),
+                        message: format!("{endpoint}: {message}: {edge:?}"),
+                        delta_refs: vec![seed.reference.clone()],
+                        causes: witness,
+                    });
+                } else {
+                    historical_context.push(problem);
+                }
+            }
+        }
+    }
+    let required_tests: Vec<_> = closure
+        .selected_tests()
+        .into_iter()
+        .map(|node| RequiredTest {
+            candidate_present: bn.get(&node).is_some_and(|n| n.kind == NodeKind::Test),
+            execution_edges: closure
+                .traversed
+                .iter()
+                .filter(|e| e.edge.kind == EdgeKind::TestExecution && e.edge.to == node)
+                .map(|e| e.edge.clone())
+                .collect(),
+            node,
+        })
+        .collect();
+    let mut judges: Vec<_> = candidate.judges()["judges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|j| {
+            let node = format!("judge:{}", j["id"].as_str().unwrap());
+            JudgeSelection {
+                triggers: closure
+                    .traversed
+                    .iter()
+                    .filter(|e| e.edge.kind == EdgeKind::JudgeTrigger && e.edge.to == node)
+                    .map(|e| e.edge.clone())
+                    .collect(),
+                node,
+            }
+        })
+        .collect();
+    judges.sort_by(|a, b| a.node.cmp(&b.node));
+    (
+        Impact {
+            schema: IMPACT_SCHEMA.into(),
+            workflow,
+            delta: delta.to_vec(),
+            records,
+            changes,
+            nodes,
+            edges,
+            seed_causes: seeds,
+            closure,
+            tests: required_tests
+                .iter()
+                .filter(|t| t.candidate_present)
+                .map(|t| t.node.clone())
+                .collect(),
+            retired_tests: required_tests
+                .iter()
+                .filter(|t| !t.candidate_present)
+                .map(|t| t.node.clone())
+                .collect(),
+            required_tests,
+            judges,
+            historical_context,
+            historical_ambiguities,
+            limits: vec![
+                "Declaration impact only; no test execution, retirement approval or cost verdict"
+                    .into(),
+                "External input declaration changes are not retained input evidence".into(),
+                if environments.is_some() {
+                    "Retained effective environments compared; completeness remains unproven".into()
+                } else {
+                    "Declaration-only API: retained effective environment differences not evaluated"
+                        .into()
+                },
+                "Actual input completeness and locality are unproven; unknown costs remain null"
+                    .into(),
+            ],
+        },
+        findings,
+    )
+}
+/// Fixed semantic documents are consumed through the same full impact producer.
+/// Declaration-level scheduling impact, before external SDK snapshots exist.
+/// Final admission continues to use produce_for_request with actual validated inputs.
+pub fn produce_for_endpoints(
+    root: &std::path::Path,
+    base: &str,
+    candidate: &str,
+    delta: &[Delta],
+    old: &Registrations,
+    current: &Registrations,
+    reader: &facts::Reader,
+) -> Result<(Impact, Vec<Finding>), String> {
+    let documents = chrono_judge_mixed::load_documents_for_endpoints(
+        root, base, candidate, delta, old, current, reader,
+    )?;
+    Ok(produce_with_documents(old, current, delta, &documents))
+}
+pub fn produce_for_request(
+    req: &Request,
+    old: &Registrations,
+    current: &Registrations,
+    reader: &facts::Reader,
+    inputs: &Value,
+) -> Result<(Impact, Vec<Finding>), String> {
+    let documents = chrono_judge_mixed::load_documents_with_reader(req, old, current, reader)?;
+    produce_with_inputs_and_documents(old, current, &req.delta, inputs, &documents)
+}
+pub fn judge(req: &Request) -> Response {
+    let mut response = req.response(Status::Pass);
+    let reader = facts::Reader::for_request(req);
+    let result = reader
+        .as_ref()
+        .map_err(Clone::clone)
+        .and_then(|reader| evaluate(req, reader));
+    if let Ok(reader) = &reader {
+        reader.record(&mut response);
+    }
+    match result {
+        Ok((impact, findings, view)) => {
+            if !findings.is_empty() {
+                response.status = Status::Fail;
+            }
+            response.findings = findings;
+            response.outputs.insert("registration_view".into(), view);
+            response
+                .outputs
+                .insert("impact".into(), serde_json::to_value(impact).unwrap());
+        }
+        Err(message) => {
+            append_finding(
+                &mut response.status,
+                &mut response.findings,
+                Status::Error,
+                Finding {
+                    code: message
+                        .split(':')
+                        .next()
+                        // Existing request/snapshot errors retain the public E_INPUT
+                        // contract; named semantic input errors are new in impact v2.
+                        .filter(|s| s.starts_with("E_SEMANTIC_"))
+                        .unwrap_or("E_INPUT")
+                        .into(),
+                    level: "error".into(),
+                    message,
+                    delta_refs: vec!["/request".into()],
+                    causes: vec![],
+                },
+            );
+        }
+    }
+    response
+}
+fn evaluate(
+    req: &Request,
+    reader: &facts::Reader,
+) -> Result<(Impact, Vec<Finding>, Value), String> {
+    req.validate()?;
+    let root = &req.candidate.root;
+    if reader.verify_oid(root, &req.base.commit)? != req.base.tree
+        || reader.verify_oid(root, &req.candidate.commit)? != req.candidate.tree
+    {
+        return Err("fixed endpoint tree mismatch".into());
+    }
+    if facts::delta(
+        &reader.tree(root, &req.base.commit)?,
+        &reader.tree(root, &req.candidate.commit)?,
+    ) != req.delta
+    {
+        return Err("DELTA differs from fixed endpoints".into());
+    }
+    let (a, b, view) = chrono_judge_registration::views_with_reader(req, reader)?;
+    let inputs = chrono_judge_registration::inputs::validate(req, &a, &b)?;
+    let (impact, findings) = produce_for_request(req, &a, &b, reader, &inputs)?;
+    Ok((impact, findings, view))
+}
