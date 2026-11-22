@@ -7,6 +7,8 @@ export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$scratch/cargo}"
 cargo fmt --check --manifest-path crates/judge-filemap/Cargo.toml
 cargo build --locked --manifest-path crates/judge-filemap/Cargo.toml
 cargo fmt --check --manifest-path crates/judge-filemap-tests/Cargo.toml
+CHRONO_TEST_GIT=$(command -v chrono-test-git) || { echo "chrono-test-git is required by filemap tests" >&2; exit 1; }
+export CHRONO_TEST_GIT
 cargo test --locked --manifest-path crates/judge-filemap-tests/Cargo.toml
 proof_bindings=()
 prove() {
