@@ -520,6 +520,43 @@ pub fn produce_for_endpoints(
     )?;
     Ok(produce_with_documents(old, current, delta, &documents))
 }
+/// Query declaration-level test obligations from two fixed commits of this host.
+pub fn endpoint_tests(root: &std::path::Path, input: impl std::io::Read) -> Result<Value, String> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Query {
+        config: String,
+        base: String,
+        candidate: String,
+    }
+    let query: Query = serde_json::from_reader(input).map_err(|error| error.to_string())?;
+    facts::full_oid(&query.base)?;
+    facts::full_oid(&query.candidate)?;
+    let reader = facts::Reader::for_config(root, &query.config)?;
+    let old = Registrations::load(
+        &reader.registry_values(root, &query.base, &query.config)?,
+        &query.config,
+    )?;
+    let current = Registrations::load(
+        &reader.registry_values(root, &query.candidate, &query.config)?,
+        &query.config,
+    )?;
+    let delta = facts::delta(
+        &reader.tree(root, &query.base)?,
+        &reader.tree(root, &query.candidate)?,
+    );
+    let (impact, findings) = produce_for_endpoints(
+        root,
+        &query.base,
+        &query.candidate,
+        &delta,
+        &old,
+        &current,
+        &reader,
+    )?;
+    Ok(json!({"tests":impact.tests,"retired_tests":impact.retired_tests,"findings":findings}))
+}
+
 pub fn produce_for_request(
     req: &Request,
     old: &Registrations,

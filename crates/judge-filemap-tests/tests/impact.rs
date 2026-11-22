@@ -1662,3 +1662,40 @@ fn a_language_change_selects_the_registered_test_for_projects_and_scripts() {
         );
     }
 }
+
+#[test]
+fn endpoint_tests_uses_fixed_trees_and_returns_blocking_findings_to_the_caller() {
+    if !chrono_git_boundary::isolated_git() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    git(root, &["init", "-q"]);
+    for (path, value) in values() {
+        let dest = root.join(path);
+        fs::create_dir_all(dest.parent().unwrap()).unwrap();
+        fs::write(dest, serde_json::to_vec(&value).unwrap()).unwrap();
+    }
+    fs::write(root.join("src.bin"), b"before").unwrap();
+    let base = commit(root);
+    fs::write(root.join("src.bin"), b"after").unwrap();
+    let head = commit(root);
+    let query = |candidate: &str| {
+        serde_json::to_vec(&json!({"config":CONFIG,"base":base,"candidate":candidate})).unwrap()
+    };
+    let selected = chrono_judge_filemap::endpoint_tests(root, query(&head).as_slice()).unwrap();
+    assert_eq!(selected["tests"], json!(["test:t"]));
+    assert_eq!(selected["retired_tests"], json!([]));
+    assert_eq!(selected["findings"], json!([]));
+    fs::write(root.join("unregistered.txt"), b"unmapped").unwrap();
+    let rejected = commit(root);
+    let findings = chrono_judge_filemap::endpoint_tests(root, query(&rejected).as_slice()).unwrap();
+    assert!(
+        findings["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|finding| finding["level"] == "error")
+    );
+    assert!(chrono_judge_filemap::endpoint_tests(root, query("dev").as_slice()).is_err());
+}
