@@ -1608,3 +1608,57 @@ fn impact_summary_validates_unprojected_fields_and_preserves_the_two_consumers_i
             .to_string()
     );
 }
+
+#[test]
+fn a_language_change_selects_the_registered_test_for_projects_and_scripts() {
+    for script in [false, true] {
+        let mut before = values();
+        let registry = before.get_mut(PROJECTS).unwrap();
+        registry["schema_version"] = json!(2);
+        let collection = if script { "scripts" } else { "projects" };
+        let prefix = if script { "script" } else { "project" };
+        if script {
+            registry["scripts"] = registry["projects"].take();
+            registry["projects"] = json!([]);
+            registry["scripts"][0]["path"] = json!("src.bin");
+            registry["scripts"][0]["test_script"] = json!("t");
+            registry["scripts"][1]["path"] = json!("doc.txt");
+            for row in registry["scripts"].as_array_mut().unwrap() {
+                let row = row.as_object_mut().unwrap();
+                for field in ["manifest", "root", "lockfile", "kind", "test_project"] {
+                    row.remove(field);
+                }
+            }
+            let fm = before.get_mut(FM).unwrap();
+            fm["files"][0]["owner"] = json!("p");
+            fm["files"][0]["edges"] = json!([]);
+            fm["files"][1]["owner"] = json!("t");
+        }
+        before.get_mut(FM).unwrap()["project_edges"] = json!([
+            edge(&format!("{prefix}:p"), "test-execution", "test:t"),
+            edge(&format!("{prefix}:t"), "test-execution", "test:t")
+        ]);
+        let registry = before.get_mut(PROJECTS).unwrap();
+        for row in registry[collection].as_array_mut().unwrap() {
+            row["language"] = json!("rust");
+        }
+        let mut after = before.clone();
+        after.get_mut(PROJECTS).unwrap()[collection][1]["language"] = json!("python");
+        let (impact, findings) = run(&before, &after, &[delta(PROJECTS)]);
+        assert!(findings.is_empty(), "{findings:?}");
+        assert_eq!(tests(&impact), ["test:t"]);
+        assert!(impact.closure.reached.contains_key(&format!("{prefix}:t")));
+        let (unrelated, findings) = run(&after, &after, &[delta(".gitignore")]);
+        assert!(findings.is_empty(), "{findings:?}");
+        assert!(tests(&unrelated).is_empty());
+        assert_eq!(
+            unrelated
+                .closure
+                .reached
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            ["file:.gitignore"]
+        );
+    }
+}
