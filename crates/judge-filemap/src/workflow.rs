@@ -4,7 +4,6 @@ use crate::{
     records::Record,
 };
 use chrono_harness::wire::Delta;
-use chrono_judge_mixed::Documents;
 use chrono_judge_registration::Registrations;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -14,10 +13,17 @@ pub fn select(
     b: &Registrations,
     delta: &[Delta],
     records: [&BTreeMap<String, Record>; 2],
-    documents: &[Documents; 2],
+    changes: Value,
 ) -> Result<Value, String> {
-    let changes = chrono_judge_mixed::classify(a, b, delta, &documents[0], &documents[1])?;
     let changed_paths: BTreeSet<_> = delta.iter().map(|d| d.path.as_str()).collect();
+    let rule_paths: Vec<String> = serde_json::from_value(changes["rule_paths"].clone())
+        .map_err(|e| format!("invalid classify-v1 rule paths: {e}"))?;
+    if rule_paths
+        .iter()
+        .any(|path| !changed_paths.contains(path.as_str()))
+    {
+        return Err("classification returned a rule path outside DELTA".into());
+    }
     let mut requirements = vec![];
     let mut triggers = BTreeSet::<String>::new();
     let mut schema_transitions = vec![];
@@ -95,13 +101,7 @@ pub fn select(
         .iter()
         .any(|r| r.workflow()["semantic_changes_require_integration"] == true)
     {
-        triggers.extend(
-            changes["rule_paths"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|p| p.as_str().unwrap().to_string()),
-        );
+        triggers.extend(rule_paths);
     }
     let required = !triggers.is_empty();
     if required {
