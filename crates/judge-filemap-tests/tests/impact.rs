@@ -1572,3 +1572,39 @@ fn scheduling_resource_reassignment_and_artifact_changes_reach_declared_consumer
         }
     }
 }
+
+#[test]
+fn impact_summary_validates_unprojected_fields_and_preserves_the_two_consumers_inputs() {
+    let values = values();
+    let (impact, findings) = run(&values, &values, &[delta("src.bin")]);
+    assert!(findings.is_empty());
+    let mut wire = serde_json::to_value(&impact).unwrap();
+    let summary = |data: &serde_json::Value| {
+        let bytes = serde_json::to_vec(data).unwrap();
+        chrono_judge_filemap::impact_summary(bytes.as_slice())
+    };
+    assert_eq!(
+        summary(&wire).unwrap(),
+        json!({
+            "schema": impact.schema, "delta": impact.delta,
+            "reached": impact.closure.reached.keys().collect::<Vec<_>>(),
+            "required_tests": impact.required_tests.iter().map(|t| &t.node).collect::<Vec<_>>(),
+            "tests": impact.tests, "retired_tests": impact.retired_tests,
+        })
+    );
+    assert!(!impact.closure.reached.is_empty());
+    wire["edges"] = json!([{"edge":{"from":"a","kind":"unknown","to":"b"},"origin":"base"}]);
+    assert_eq!(
+        summary(&wire).unwrap_err().to_string(),
+        serde_json::from_value::<Impact>(wire.clone())
+            .unwrap_err()
+            .to_string()
+    );
+    wire.as_object_mut().unwrap().remove("edges");
+    assert_eq!(
+        summary(&wire).unwrap_err().to_string(),
+        serde_json::from_value::<Impact>(wire.clone())
+            .unwrap_err()
+            .to_string()
+    );
+}
