@@ -1,0 +1,379 @@
+[
+  {
+    "paths": [],
+    "reply": {
+      "Ok": {
+        "changes": [],
+        "mixed": false,
+        "product_changes": [],
+        "product_paths": [],
+        "requires_acknowledgement": false,
+        "rule_paths": []
+      }
+    }
+  },
+  {
+    "paths": [
+      ".chrono-harness/FILEMAP.json"
+    ],
+    "reply": {
+      "Ok": {
+        "changes": [],
+        "mixed": false,
+        "product_changes": [
+          {
+            "after_surface": "product",
+            "before_surface": "product",
+            "path": ".chrono-harness/FILEMAP.json"
+          }
+        ],
+        "product_paths": [
+          ".chrono-harness/FILEMAP.json"
+        ],
+        "requires_acknowledgement": false,
+        "rule_paths": []
+      }
+    }
+  },
+  {
+    "paths": [
+      ".chrono-harness/FILEMAP.json",
+      ".chrono-harness/projects.json",
+      ".chrono-harness/judges.json"
+    ],
+    "reply": {
+      "Ok": {
+        "changes": [],
+        "mixed": false,
+        "product_changes": [
+          {
+            "after_surface": "product",
+            "before_surface": "product",
+            "path": ".chrono-harness/FILEMAP.json"
+          },
+          {
+            "after_surface": "product",
+            "before_surface": "product",
+            "path": ".chrono-harness/judges.json"
+          },
+          {
+            "after_surface": "product",
+            "before_surface": "product",
+            "path": ".chrono-harness/projects.json"
+          }
+        ],
+        "product_paths": [
+          ".chrono-harness/FILEMAP.json",
+          ".chrono-harness/judges.json",
+          ".chrono-harness/projects.json"
+        ],
+        "requires_acknowledgement": false,
+        "rule_paths": []
+      }
+    }
+  },
+  {
+    "paths": [
+      ".chrono-harness/config.json"
+    ],
+    "reply": {
+      "Ok": {
+        "changes": [],
+        "mixed": false,
+        "product_changes": [
+          {
+            "after_surface": "product",
+            "before_surface": "product",
+            "path": ".chrono-harness/config.json"
+          }
+        ],
+        "product_paths": [
+          ".chrono-harness/config.json"
+        ],
+        "requires_acknowledgement": false,
+        "rule_paths": []
+      }
+    }
+  },
+  {
+    "paths": [
+      ".chrono-harness/config.json",
+      ".chrono-harness/FILEMAP.json"
+    ],
+    "reply": {
+      "Ok": {
+        "changes": [],
+        "mixed": false,
+        "product_changes": [
+          {
+            "after_surface": "product",
+            "before_surface": "product",
+            "path": ".chrono-harness/FILEMAP.json"
+          },
+          {
+            "after_surface": "product",
+            "before_surface": "product",
+            "path": ".chrono-harness/config.json"
+          }
+        ],
+        "product_paths": [
+          ".chrono-harness/FILEMAP.json",
+          ".chrono-harness/config.json"
+        ],
+        "requires_acknowledgement": false,
+        "rule_paths": []
+      }
+    }
+  },
+  {
+    "paths": [
+      ".chrono-harness/projects.json"
+    ],
+    "reply": {
+      "Ok": {
+        "changes": [],
+        "mixed": false,
+        "product_changes": [
+          {
+            "after_surface": "product",
+            "before_surface": "product",
+            "path": ".chrono-harness/projects.json"
+          }
+        ],
+        "product_paths": [
+          ".chrono-harness/projects.json"
+        ],
+        "requires_acknowledgement": false,
+        "rule_paths": []
+      }
+    }
+  },
+  {
+    "paths": [
+      ".chrono-harness/projects.json",
+      "src.bin"
+    ],
+    "reply": {
+      "Ok": {
+        "changes": [],
+        "mixed": false,
+        "product_changes": [
+          {
+            "after_surface": "product",
+            "before_surface": "product",
+            "path": ".chrono-harness/projects.json"
+          },
+          {
+            "after_surface": "product",
+            "before_surface": "product",
+            "path": "src.bin"
+          }
+        ],
+        "product_paths": [
+          ".chrono-harness/projects.json",
+          "src.bin"
+        ],
+        "requires_acknowledgement": false,
+        "rule_paths": []
+      }
+    }
+  },
+  {
+    "paths": [
+      ".gitignore"
+    ],
+    "reply": {
+      "Ok": {
+        "changes": [],
+        "mixed": false,
+        "product_changes": [
+          {
+            "after_surface": "product",
+            "before_surface": "product",
+            "path": ".gitignore"
+          }
+        ],
+        "product_paths": [
+          ".gitignore"
+        ],
+        "requires_acknowledgement": false,
+        "rule_paths": []
+      }
+    }
+  },
+  {
+    "paths": [
+      "doc.txt"
+    ],
+    "reply": {
+      "Ok": {
+        "changes": [],
+        "mixed": false,
+        "product_changes": [
+          {
+            "after_surface": "product",
+            "before_surface": "product",
+            "path": "doc.txt"
+          }
+        ],
+        "product_paths": [
+          "doc.txt"
+        ],
+        "requires_acknowledgement": false,
+        "rule_paths": []
+      }
+    }
+  },
+  {
+    "paths": [
+      "doc.txt",
+      "src.bin"
+    ],
+    "reply": {
+      "Ok": {
+        "changes": [],
+        "mixed": false,
+        "product_changes": [
+          {
+            "after_surface": "product",
+            "before_surface": "product",
+            "path": "doc.txt"
+          },
+          {
+            "after_surface": "product",
+            "before_surface": "product",
+            "path": "src.bin"
+          }
+        ],
+        "product_paths": [
+          "doc.txt",
+          "src.bin"
+        ],
+        "requires_acknowledgement": false,
+        "rule_paths": []
+      }
+    }
+  },
+  {
+    "paths": [
+      "new.bin",
+      "src.bin"
+    ],
+    "reply": {
+      "Ok": {
+        "changes": [],
+        "mixed": false,
+        "product_changes": [
+          {
+            "after_surface": "product",
+            "before_surface": null,
+            "path": "new.bin"
+          },
+          {
+            "after_surface": null,
+            "before_surface": "product",
+            "path": "src.bin"
+          }
+        ],
+        "product_paths": [
+          "new.bin",
+          "src.bin"
+        ],
+        "requires_acknowledgement": false,
+        "rule_paths": []
+      }
+    }
+  },
+  {
+    "paths": [
+      "src.bin"
+    ],
+    "reply": {
+      "Ok": {
+        "changes": [],
+        "mixed": false,
+        "product_changes": [
+          {
+            "after_surface": "product",
+            "before_surface": "product",
+            "path": "src.bin"
+          }
+        ],
+        "product_paths": [
+          "src.bin"
+        ],
+        "requires_acknowledgement": false,
+        "rule_paths": []
+      }
+    }
+  },
+  {
+    "paths": [
+      "src.bin",
+      ".chrono-harness/FILEMAP.json"
+    ],
+    "reply": {
+      "Ok": {
+        "changes": [],
+        "mixed": false,
+        "product_changes": [
+          {
+            "after_surface": "product",
+            "before_surface": "product",
+            "path": ".chrono-harness/FILEMAP.json"
+          },
+          {
+            "after_surface": "product",
+            "before_surface": "product",
+            "path": "src.bin"
+          }
+        ],
+        "product_paths": [
+          ".chrono-harness/FILEMAP.json",
+          "src.bin"
+        ],
+        "requires_acknowledgement": false,
+        "rule_paths": []
+      }
+    }
+  },
+  {
+    "paths": [
+      "src.bin",
+      "doc.txt"
+    ],
+    "reply": {
+      "Ok": {
+        "changes": [],
+        "mixed": false,
+        "product_changes": [
+          {
+            "after_surface": "product",
+            "before_surface": "product",
+            "path": "doc.txt"
+          },
+          {
+            "after_surface": "product",
+            "before_surface": "product",
+            "path": "src.bin"
+          }
+        ],
+        "product_paths": [
+          "doc.txt",
+          "src.bin"
+        ],
+        "requires_acknowledgement": false,
+        "rule_paths": []
+      }
+    }
+  },
+  {
+    "paths": [
+      "src.bin",
+      "unregistered.txt"
+    ],
+    "reply": {
+      "Err": "E_SURFACE_REFERENCE: no registration for unregistered.txt"
+    }
+  }
+]

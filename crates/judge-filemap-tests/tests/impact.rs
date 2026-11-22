@@ -1,3 +1,13 @@
+#[path = "support/classification.rs"]
+mod mixed_fixture;
+fn classification(delta: &[chrono_harness::wire::Delta]) -> Result<serde_json::Value, String> {
+    mixed_fixture::reply(
+        &delta
+            .iter()
+            .map(|change| change.path.as_str())
+            .collect::<Vec<_>>(),
+    )
+}
 #[path = "support/isolated_git.rs"]
 mod chrono_git_boundary;
 mod support;
@@ -14,8 +24,9 @@ use std::{
 };
 use support::*;
 fn run(a: &Values, b: &Values, d: &[chrono_harness::wire::Delta]) -> (Impact, Vec<Finding>) {
-    produce(&load(a), &load(b), d)
+    produce(&load(a), &load(b), d, classification(d))
 }
+
 fn tests(i: &Impact) -> Vec<&str> {
     i.required_tests.iter().map(|t| t.node.as_str()).collect()
 }
@@ -1336,8 +1347,14 @@ fn retained_effective_environment_api_preserves_old_edges_and_rejects_unknown_fa
         .retain(|e| e["from"] != "environment:MODE");
     let endpoints = json!({"base":{"inherited":{"MODE":"old"},"environment":{"MODE":"old"}},"candidate":{"inherited":{},"environment":{}}});
     let mut evidence = json!({"schema":"chrono-effective-inputs/v1","identity":chrono_harness::wire::digest(&endpoints).unwrap(),"endpoints":endpoints});
-    let (impact, findings) =
-        chrono_judge_filemap::produce_with_inputs(&load(&a), &load(&b), &[], &evidence).unwrap();
+    let (impact, findings) = chrono_judge_filemap::produce_with_inputs(
+        &load(&a),
+        &load(&b),
+        &[],
+        &evidence,
+        classification(&[]),
+    )
+    .unwrap();
     assert!(findings.is_empty());
     assert_eq!(impact.tests, vec!["test:t"]);
     assert!(
@@ -1349,7 +1366,14 @@ fn retained_effective_environment_api_preserves_old_edges_and_rejects_unknown_fa
     evidence["endpoints"]["candidate"]["environment"]["UNKNOWN"] = json!("unrepresented");
     evidence["identity"] = json!(chrono_harness::wire::digest(&evidence["endpoints"]).unwrap());
     assert!(
-        chrono_judge_filemap::produce_with_inputs(&load(&a), &load(&b), &[], &evidence).is_err()
+        chrono_judge_filemap::produce_with_inputs(
+            &load(&a),
+            &load(&b),
+            &[],
+            &evidence,
+            classification(&[])
+        )
+        .is_err()
     );
 }
 
@@ -1668,6 +1692,15 @@ fn endpoint_tests_uses_fixed_trees_and_returns_blocking_findings_to_the_caller()
     if !chrono_git_boundary::isolated_git() {
         return;
     }
+    // isolated_git owns this directory and prepends it to the child process PATH.
+    let custody = std::path::PathBuf::from(std::env::var_os("CHRONO_TEST_CUSTODY_ROOT").unwrap());
+    let tools = custody.parent().unwrap();
+    assert!(tools.join("git").is_file());
+    std::fs::hard_link(
+        env!("CARGO_BIN_EXE_chrono-test-mixed"),
+        tools.join("chrono-judge-mixed"),
+    )
+    .unwrap();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     git(root, &["init", "-q"]);

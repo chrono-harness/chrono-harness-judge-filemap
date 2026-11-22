@@ -1,4 +1,5 @@
 //! Candidate FILEMAP impact policy. No operation execution, retirement or cost verdicts.
+mod classification;
 pub mod graph;
 mod records;
 #[allow(unexpected_cfgs)]
@@ -113,25 +114,9 @@ pub fn produce(
     base: &Registrations,
     candidate: &Registrations,
     delta: &[Delta],
+    classification: Result<Value, String>,
 ) -> (Impact, Vec<Finding>) {
-    produce_with_documents(
-        base,
-        candidate,
-        delta,
-        &[
-            chrono_judge_mixed::registry_documents(base),
-            chrono_judge_mixed::registry_documents(candidate),
-        ],
-    )
-}
-/// Named semantic inputs are explicit; no file discovery or missing-input fallback.
-pub fn produce_with_documents(
-    base: &Registrations,
-    candidate: &Registrations,
-    delta: &[Delta],
-    documents: &[chrono_judge_mixed::Documents; 2],
-) -> (Impact, Vec<Finding>) {
-    produce_environment(base, candidate, delta, None, documents)
+    produce_environment(base, candidate, delta, None, classification)
 }
 /// Effective-input impact for validated retained endpoint facts. Declarations and
 /// effective values use the same explicit environment nodes; no edges are inferred.
@@ -140,24 +125,7 @@ pub fn produce_with_inputs(
     candidate: &Registrations,
     delta: &[Delta],
     effective_inputs: &Value,
-) -> Result<(Impact, Vec<Finding>), String> {
-    produce_with_inputs_and_documents(
-        base,
-        candidate,
-        delta,
-        effective_inputs,
-        &[
-            chrono_judge_mixed::registry_documents(base),
-            chrono_judge_mixed::registry_documents(candidate),
-        ],
-    )
-}
-pub fn produce_with_inputs_and_documents(
-    base: &Registrations,
-    candidate: &Registrations,
-    delta: &[Delta],
-    effective_inputs: &Value,
-    documents: &[chrono_judge_mixed::Documents; 2],
+    classification: Result<Value, String>,
 ) -> Result<(Impact, Vec<Finding>), String> {
     let environments = chrono_judge_registration::inputs::effective_environments(
         effective_inputs,
@@ -169,7 +137,7 @@ pub fn produce_with_inputs_and_documents(
         candidate,
         delta,
         environments.as_ref(),
-        documents,
+        classification,
     ))
 }
 fn produce_environment(
@@ -177,14 +145,16 @@ fn produce_environment(
     candidate: &Registrations,
     delta: &[Delta],
     environments: Option<&[BTreeMap<String, String>; 2]>,
-    documents: &[chrono_judge_mixed::Documents; 2],
+    classification: Result<Value, String>,
 ) -> (Impact, Vec<Finding>) {
     let an = base.node_data();
     let bn = candidate.node_data();
     let a = records::inventory(base, &an, environments.map(|p| &p[0]));
     let b = records::inventory(candidate, &bn, environments.map(|p| &p[1]));
     let mut findings = vec![];
-    let workflow = match workflow::select(base, candidate, delta, [&a, &b], documents) {
+    let workflow = match classification
+        .and_then(|changes| workflow::select(base, candidate, delta, [&a, &b], changes))
+    {
         Ok(selection) => selection,
         Err(message) => {
             findings.push(Finding {
@@ -515,10 +485,15 @@ pub fn produce_for_endpoints(
     current: &Registrations,
     reader: &facts::Reader,
 ) -> Result<(Impact, Vec<Finding>), String> {
-    let documents = chrono_judge_mixed::load_documents_for_endpoints(
-        root, base, candidate, delta, old, current, reader,
+    let changes = classification::for_endpoints(
+        root,
+        [base, candidate],
+        [old, current],
+        delta,
+        reader,
+        None,
     )?;
-    Ok(produce_with_documents(old, current, delta, &documents))
+    Ok(produce(old, current, delta, changes))
 }
 /// Query declaration-level test obligations from two fixed commits of this host.
 pub fn endpoint_tests(root: &std::path::Path, input: impl std::io::Read) -> Result<Value, String> {
@@ -564,8 +539,16 @@ pub fn produce_for_request(
     reader: &facts::Reader,
     inputs: &Value,
 ) -> Result<(Impact, Vec<Finding>), String> {
-    let documents = chrono_judge_mixed::load_documents_with_reader(req, old, current, reader)?;
-    produce_with_inputs_and_documents(old, current, &req.delta, inputs, &documents)
+    let search_path = req.observations["environment"]["effective"]["PATH"].as_str();
+    let changes = classification::for_endpoints(
+        &req.candidate.root,
+        [&req.base.commit, &req.candidate.commit],
+        [old, current],
+        &req.delta,
+        reader,
+        search_path,
+    )?;
+    produce_with_inputs(old, current, &req.delta, inputs, changes)
 }
 pub fn judge(req: &Request) -> Response {
     let mut response = req.response(Status::Pass);
