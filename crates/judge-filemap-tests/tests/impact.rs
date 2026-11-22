@@ -1,0 +1,1574 @@
+#[path = "support/isolated_git.rs"]
+mod chrono_git_boundary;
+mod support;
+use chrono_harness::{facts, wire::Finding};
+use chrono_judge_filemap::{
+    Impact,
+    graph::{self, Edge, EdgeKind, Origin, Seed},
+    produce,
+};
+use serde_json::json;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+};
+use support::*;
+fn run(a: &Values, b: &Values, d: &[chrono_harness::wire::Delta]) -> (Impact, Vec<Finding>) {
+    produce(&load(a), &load(b), d)
+}
+fn tests(i: &Impact) -> Vec<&str> {
+    i.required_tests.iter().map(|t| t.node.as_str()).collect()
+}
+#[test]
+fn configuration_edges_preserve_two_endpoint_add_remove_impact_and_inactive_scope() {
+    let mut original = values();
+    original.get_mut(FM).unwrap()["schema_version"] = json!(2);
+    original.get_mut(FM).unwrap()["execution_plans"] = json!({"test:t": {
+        "operations":["execute.t"],"timeout_seconds":900,"output_limit_bytes":1048576
+    }});
+    original.get_mut(FM).unwrap()["files"]
+        .as_array_mut()
+        .unwrap()
+        .push(file(".chrono-harness/other.json", json!([])));
+    let mut active = original.clone();
+    active.get_mut(FM).unwrap()["configuration_edges"] = json!({
+    "schema":"chrono-filemap-configuration-edges/v1","configurations":[
+        {"config":CONFIG,"edges":[edge("environment:PATH","runtime-input","project:p")]},
+        {"config":".chrono-harness/other.json","edges":[edge("input:foreign","runtime-input","project:foreign")]}
+    ]});
+    for (before, after, origin) in [
+        (&original, &active, Origin::Candidate),
+        (&active, &original, Origin::Base),
+    ] {
+        let (impact, findings) = run(before, after, &[]);
+        assert!(findings.is_empty(), "{findings:?}");
+        assert_eq!(tests(&impact), ["test:t"]);
+        assert!(
+            impact
+                .edges
+                .iter()
+                .any(|e| e.edge.from == "environment:PATH" && e.origin == origin)
+        );
+        assert!(!impact.nodes.contains_key("input:foreign"));
+        assert!(!impact.edges.iter().any(|e| e.edge.from == "input:foreign"));
+    }
+    let mut inactive = active.clone();
+    inactive.get_mut(FM).unwrap()["configuration_edges"]["configurations"][1]["edges"][0]["from"] =
+        json!("input:other-foreign");
+    let (impact, findings) = run(&active, &inactive, &[]);
+    assert!(findings.is_empty(), "{findings:?}");
+    assert!(
+        tests(&impact).is_empty(),
+        "inactive policy graph must not select business tests"
+    );
+}
+#[test]
+fn operation_override_add_change_and_remove_keep_explicit_plan_impact() {
+    let mut original = values();
+    original.get_mut(FM).unwrap()["schema_version"] = json!(2);
+    original.get_mut(FM).unwrap()["execution_plans"] = json!({"test:t": {
+        "operations":["execute.t"], "timeout_seconds":900,"output_limit_bytes":1048576
+    }});
+    let mut overridden = original.clone();
+    overridden.get_mut(FM).unwrap()["execution_plans"]["test:t"]["operation_bounds"] =
+        json!({"execute.t":{"timeout_seconds":600,"output_limit_bytes":1048576}});
+    let mut changed = overridden.clone();
+    changed.get_mut(FM).unwrap()["execution_plans"]["test:t"]["operation_bounds"]["execute.t"]["timeout_seconds"] =
+        json!(601);
+    let (disconnected, findings) = run(&original, &overridden, &[]);
+    assert!(findings.is_empty(), "{findings:?}");
+    assert!(tests(&disconnected).is_empty());
+    for endpoint in [&mut original, &mut overridden, &mut changed] {
+        endpoint.get_mut(FM).unwrap()["project_edges"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"from":"project:t","kind":"test-execution","to":"test:t"}));
+    }
+    for (before, after) in [
+        (&original, &overridden),
+        (&overridden, &changed),
+        (&overridden, &original),
+    ] {
+        let (impact, findings) = run(before, after, &[]);
+        assert!(findings.is_empty(), "{findings:?}");
+        assert_eq!(tests(&impact), ["test:t"]);
+        assert!(
+            impact
+                .changes
+                .iter()
+                .any(|c| c.record.ends_with("/execution_plans/test:t")
+                    && c.fields.iter().any(|f| f.starts_with("/operation_bounds")))
+        );
+    }
+}
+fn oracle_edges(rows: &[(&str, EdgeKind, &str)]) -> BTreeSet<Edge> {
+    rows.iter()
+        .map(|(a, k, b)| Edge {
+            from: (*a).into(),
+            kind: *k,
+            to: (*b).into(),
+        })
+        .collect()
+}
+// Witness oracle takes independently specified endpoint edges; it never parses producer strings.
+fn witnesses(i: &Impact, allowed: &BTreeSet<Edge>) {
+    for (node, seeds) in &i.closure.reached {
+        for id in seeds.entries() {
+            let s = i.seed_causes.iter().find(|s| &s.id == id).unwrap();
+            let mut at = s.node.clone();
+            for e in i.closure.witness(id, node).unwrap() {
+                assert!(allowed.contains(&e), "fabricated edge {e:?}");
+                assert_eq!(at, e.from);
+                at = e.to;
+            }
+            assert_eq!(&at, node);
+        }
+    }
+    for t in &i.closure.traversed {
+        assert!(allowed.contains(&t.edge));
+    }
+}
+#[test]
+fn typed_content_mode_binary_add_modify_delete_and_rename() {
+    if !chrono_git_boundary::isolated_git() {
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    git(root, &["init", "-q"]);
+    fs::write(root.join("src.bin"), [0, 255, 1]).unwrap();
+    let b = commit(root);
+    let a = values();
+    for (bytes, mode) in [(vec![0, 255, 2], 0o644), (vec![0, 255, 1], 0o755)] {
+        fs::write(root.join("src.bin"), bytes).unwrap();
+        fs::set_permissions(root.join("src.bin"), fs::Permissions::from_mode(mode)).unwrap();
+        let c = commit(root);
+        let d = git_delta(root, &b, &c);
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].kind, "M");
+        let (i, f) = run(&a, &a, &d);
+        assert!(f.is_empty());
+        assert_eq!(tests(&i), ["test:t"]);
+    }
+    fs::rename(root.join("src.bin"), root.join("new.bin")).unwrap();
+    let c = commit(root);
+    let d = git_delta(root, &b, &c);
+    assert_eq!(
+        d.iter().map(|d| (&*d.path, &*d.kind)).collect::<Vec<_>>(),
+        [("new.bin", "A"), ("src.bin", "D")]
+    );
+    assert_eq!(d[0].new_blob, d[1].old_blob);
+    let mut n = a.clone();
+    n.get_mut(FM).unwrap()["files"][0]["path"] = "new.bin".into();
+    let (i, f) = run(&a, &n, &d);
+    assert!(f.is_empty());
+    assert_eq!(tests(&i), ["test:t"]);
+    assert!(i.nodes["file:src.bin"].candidate_definitions.is_empty());
+}
+#[test]
+fn nonancestor_and_multicommit_facts_use_complete_endpoints() {
+    if !chrono_git_boundary::isolated_git() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    git(root, &["init", "-q"]);
+    fs::write(root.join("src.bin"), "one").unwrap();
+    let first = commit(root);
+    fs::write(root.join("doc.txt"), "docs").unwrap();
+    let left = commit(root);
+    git(root, &["checkout", "--detach", &first]);
+    fs::write(root.join("src.bin"), "two").unwrap();
+    commit(root);
+    fs::write(root.join("doc.txt"), "other docs").unwrap();
+    let right = commit(root);
+    for base in [&first, &left] {
+        let d = git_delta(root, base, &right);
+        assert_eq!(d.len(), 2);
+        let (i, _) = run(&values(), &values(), &d);
+        assert_eq!(tests(&i), ["test:t"]);
+    }
+    assert!(facts::tree(root, &"a".repeat(40)).is_err());
+}
+#[test]
+fn no_delta_and_disconnected_docs_only_select_every_delta_judges() {
+    let a = values();
+    for d in [vec![], vec![delta("doc.txt")]] {
+        let (i, f) = run(&a, &a, &d);
+        assert!(f.is_empty());
+        assert!(tests(&i).is_empty());
+        assert_eq!(i.judges.len(), 2);
+        assert_eq!(
+            i.judges.iter().map(|j| j.node.as_str()).collect::<Vec<_>>(),
+            ["judge:filemap", "judge:registration"]
+        );
+        assert!(i.judges.iter().all(|j| j.triggers.is_empty()));
+    }
+}
+#[test]
+fn base_only_test_edge_preserves_removed_requirement_owner_and_cost() {
+    let a = values();
+    let mut b = a.clone();
+    b.get_mut(FM).unwrap()["project_edges"] = json!([]);
+    b.get_mut(FM).unwrap()["files"]
+        .as_array_mut()
+        .unwrap()
+        .remove(0);
+    b.get_mut(FM).unwrap()["test_costs"] = json!([]);
+    b.get_mut(FM).unwrap()["cost_models"] = json!({});
+    b.get_mut(PROJECTS).unwrap()["projects"] = json!([]);
+    b.get_mut(PROJECTS).unwrap()["owners"] = json!([]);
+    let (i, f) = run(&a, &b, &[delta(FM)]);
+    assert!(f.is_empty());
+    assert_eq!(
+        tests(&i),
+        ["test:t"],
+        "removed test edge must still require old test"
+    );
+    assert!(!i.required_tests[0].candidate_present);
+    let cost = &i.records["/records/filemap/test_costs/t"];
+    assert_eq!(cost.base.as_ref().unwrap().value["cost"], "unknown");
+    assert!(cost.candidate.is_none());
+    let model = &i.records["/records/filemap/cost_models/unknown"];
+    assert_eq!(model.base.as_ref().unwrap().value["cpu_ms"], json!(null));
+    assert!(model.candidate.is_none());
+    let old_file = &i.nodes["file:src.bin"].base_definitions;
+    assert_eq!(old_file.len(), 1);
+    assert_eq!(old_file[0].value["owner"], "host");
+    assert!(i.records["/records/projects/owners/host"].base.is_some());
+    assert!(i.edges.iter().all(|e| e.origin == Origin::Base));
+    witnesses(
+        &i,
+        &oracle_edges(&[
+            ("file:src.bin", EdgeKind::Compile, "project:p"),
+            ("project:p", EdgeKind::TestExecution, "test:t"),
+        ]),
+    );
+}
+#[test]
+fn file_record_field_and_edge_add_delete_retarget_changes_seed_both_ends() {
+    let a = values();
+    let mut b = a.clone();
+    b.get_mut(FM).unwrap()["files"][0]["owner"] = "p".into();
+    b.get_mut(FM).unwrap()["project_edges"] =
+        json!([edge("project:t", "test-execution", "test:t")]);
+    let (i, f) = run(&a, &b, &[delta(FM)]);
+    assert!(f.is_empty());
+    assert_eq!(tests(&i), ["test:t"]);
+    assert!(i.changes.iter().any(
+        |c| c.record == "/records/filemap/files/src.bin" && c.fields.contains(&"/owner".into())
+    ));
+    for node in ["project:p", "project:t", "test:t"] {
+        assert!(
+            i.seed_causes
+                .iter()
+                .any(|s| s.node == node && s.reason == "edge-change")
+        );
+    }
+    assert_eq!(
+        i.edges.iter().filter(|e| e.origin == Origin::Base).count(),
+        1
+    );
+    assert_eq!(
+        i.edges
+            .iter()
+            .filter(|e| e.origin == Origin::Candidate)
+            .count(),
+        1
+    );
+    assert_eq!(
+        i.edges.iter().filter(|e| e.origin == Origin::Both).count(),
+        1
+    );
+    for s in &i.seed_causes {
+        if s.reason != "delta-path" {
+            assert!(i.records.contains_key(&s.reference));
+        }
+    }
+}
+#[test]
+fn cycles_diamonds_and_multiple_causes_retain_real_edges_and_all_seeds() {
+    let mut a = values();
+    for id in ["a", "b", "z"] {
+        a.get_mut(PROJECTS).unwrap()["projects"]
+            .as_array_mut()
+            .unwrap()
+            .push(project(id, "production", "t"));
+    }
+    let rows = [
+        ("file:src.bin", EdgeKind::Compile, "project:p"),
+        ("file:doc.txt", EdgeKind::RuntimeInput, "project:a"),
+        ("project:p", EdgeKind::Compile, "project:a"),
+        ("project:p", EdgeKind::Compile, "project:b"),
+        ("project:a", EdgeKind::Compile, "project:z"),
+        ("project:b", EdgeKind::Compile, "project:z"),
+        ("project:z", EdgeKind::Compile, "project:p"),
+        ("project:z", EdgeKind::TestExecution, "test:t"),
+    ];
+    a.get_mut(FM).unwrap()["files"][1]["edges"] =
+        json!([{"kind":"runtime-input","to":"project:a"}]);
+    a.get_mut(FM).unwrap()["project_edges"] = serde_json::to_value(
+        oracle_edges(&rows)
+            .into_iter()
+            .filter(|e| !e.from.starts_with("file:"))
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+    let (i, f) = run(&a, &a, &[delta("src.bin"), delta("doc.txt")]);
+    assert!(f.is_empty());
+    assert_eq!(tests(&i), ["test:t"]);
+    assert_eq!(i.closure.reached["test:t"].len(), 2);
+    assert_eq!(i.closure.traversed.len(), rows.len());
+    witnesses(&i, &oracle_edges(&rows));
+}
+
+#[test]
+fn input_declaration_boundary_propagates_build_and_runtime_without_claiming_retention() {
+    for kind in ["build-input", "runtime-input"] {
+        let mut a = values();
+        a.get_mut(CONFIG).unwrap()["environment"]["inputs"] =
+            json!([{"id":"data","location":"/external/data","sha256":null}]);
+        a.get_mut(FM).unwrap()["project_edges"]
+            .as_array_mut()
+            .unwrap()
+            .push(edge("input:data", kind, "project:p"));
+        let mut b = a.clone();
+        b.get_mut(CONFIG).unwrap()["environment"]["inputs"][0]["sha256"] = "f".repeat(64).into();
+        let (i, f) = run(&a, &b, &[delta(CONFIG)]);
+        assert!(f.is_empty());
+        assert_eq!(tests(&i), ["test:t"]);
+        assert!(i.seed_causes.iter().any(|s| s.node == "input:data"));
+        assert!(i.limits.iter().any(|s| s.contains("not retained")));
+    }
+}
+#[test]
+fn pairing_and_test_record_seed_without_execution_edge_do_not_select() {
+    let mut a = values();
+    a.get_mut(FM).unwrap()["project_edges"] = json!([]);
+    let mut b = a.clone();
+    b.get_mut(FM).unwrap()["test_costs"][0]["cost"] = "changed".into();
+    let (i, _) = run(&a, &b, &[delta("src.bin"), delta(FM)]);
+    assert!(i.closure.reached.contains_key("project:p"));
+    assert!(i.closure.reached.contains_key("test:t"));
+    assert!(
+        tests(&i).is_empty(),
+        "test seed and ownership pairing cannot select execution"
+    );
+}
+#[test]
+fn wrong_edge_to_test_cannot_select_and_has_real_cause() {
+    let mut a = values();
+    a.get_mut(FM).unwrap()["project_edges"] = json!([edge("project:p", "compile", "test:t")]);
+    let (i, f) = run(&a, &a, &[delta("src.bin")]);
+    assert!(tests(&i).is_empty());
+    assert_eq!(f.len(), 2);
+    for f in f {
+        assert_eq!(f.code, "E_EDGE_TYPE");
+        assert_eq!(f.delta_refs, ["src.bin"]);
+        assert_eq!(f.causes, ["file:src.bin", "project:p", "test:t"]);
+    }
+}
+#[test]
+fn reached_dangling_and_changed_invalid_types_fail_but_disconnected_history_is_context() {
+    let mut a = values();
+    a.get_mut(FM).unwrap()["project_edges"]
+        .as_array_mut()
+        .unwrap()
+        .push(edge("project:p", "compile", "project:missing"));
+    let (_, f) = run(&a, &a, &[delta("src.bin")]);
+    assert_eq!(f.len(), 2);
+    for f in f {
+        assert_eq!(f.delta_refs, ["src.bin"]);
+        assert_eq!(f.causes, ["file:src.bin", "project:p", "project:missing"]);
+    }
+    let (i, f) = run(&a, &a, &[delta("doc.txt")]);
+    assert!(f.is_empty());
+    assert_eq!(i.historical_context.len(), 2);
+    let mut b = a.clone();
+    b.get_mut(FM).unwrap()["project_edges"][1] = edge("judge:registration", "compile", "project:p");
+    let (i, f) = run(&a, &b, &[delta(FM)]);
+    assert!(f.iter().any(|f| f.code == "E_EDGE_TYPE"));
+    for f in f {
+        let reference = &f.delta_refs[0];
+        assert!(i.records.contains_key(reference) || reference == FM);
+        let seed = i
+            .seed_causes
+            .iter()
+            .find(|s| &s.reference == reference && s.node == f.causes[0]);
+        assert!(seed.is_some());
+    }
+}
+#[test]
+fn judge_triggers_add_explanations_once() {
+    let mut a = values();
+    a.get_mut(FM).unwrap()["files"][0]["edges"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"kind":"judge-trigger","to":"judge:filemap"}));
+    let (i, f) = run(&a, &a, &[delta("src.bin")]);
+    assert!(f.is_empty());
+    let j = i.judges.iter().find(|j| j.node == "judge:filemap").unwrap();
+    assert!(i.judges.iter().any(|j| j.node == "judge:registration"));
+    assert_eq!(j.triggers.len(), 1);
+    assert_eq!(i.judges.len(), 2);
+}
+#[test]
+fn identity_array_order_is_irrelevant_but_argv_order_changes_target() {
+    let a = values();
+    let mut b = a.clone();
+    for (p, k) in [
+        (FM, "files"),
+        (PROJECTS, "owners"),
+        (PROJECTS, "projects"),
+        (JUDGES, "judges"),
+    ] {
+        b.get_mut(p).unwrap()[k].as_array_mut().unwrap().reverse();
+    }
+    let (i, f) = run(&a, &b, &[delta(FM), delta(PROJECTS), delta(JUDGES)]);
+    assert!(f.is_empty());
+    assert!(i.changes.is_empty());
+    assert!(tests(&i).is_empty());
+    b.get_mut(PROJECTS).unwrap()["projects"][1]["actions"]["execute"]["argv"] =
+        json!(["exit 0", "-c"]);
+    let (i, _) = run(&a, &b, &[delta(PROJECTS)]);
+    assert_eq!(tests(&i), ["test:t"]);
+    assert!(
+        i.changes
+            .iter()
+            .any(|c| c.fields.contains(&"/actions/execute/argv".into()))
+    );
+}
+#[test]
+fn shared_graph_does_not_need_full_registration_and_only_execution_edges_select() {
+    let edge = Edge {
+        from: "legacy".into(),
+        kind: EdgeKind::Compile,
+        to: "test:legacy".into(),
+    };
+    let g = graph::union(&BTreeSet::new(), &BTreeSet::from([edge]));
+    let c = graph::closure(
+        &g,
+        &[Seed {
+            id: "s".into(),
+            node: "legacy".into(),
+            reference: "legacy".into(),
+            reason: "adapter".into(),
+        }],
+    );
+    assert!(c.reached.contains_key("test:legacy"));
+    assert!(
+        c.selected_tests().is_empty(),
+        "nonexecution edges cannot select tests"
+    );
+}
+
+#[test]
+fn edge_kind_json_adapters_use_exact_canonical_strings() {
+    let pairs = [
+        ("compile", EdgeKind::Compile),
+        ("build-input", EdgeKind::BuildInput),
+        ("runtime-input", EdgeKind::RuntimeInput),
+        ("test-execution", EdgeKind::TestExecution),
+        ("judge-trigger", EdgeKind::JudgeTrigger),
+    ];
+    for (name, kind) in pairs {
+        let value = json!(name);
+        assert_eq!(serde_json::to_value(kind).unwrap(), value);
+        assert_eq!(serde_json::from_value::<EdgeKind>(value).unwrap(), kind);
+        let text = format!("\"{name}\"");
+        assert_eq!(serde_json::from_str::<EdgeKind>(&text).unwrap(), kind);
+    }
+    assert_eq!(
+        serde_json::from_str::<EdgeKind>(r#""\u0063ompile""#).unwrap(),
+        EdgeKind::Compile
+    );
+    for value in [
+        json!(""),
+        json!("Compile"),
+        json!("compil"),
+        json!("compilex"),
+        json!("build_input"),
+        json!(" compile"),
+        json!("compile\0"),
+        json!("编译"),
+        json!(null),
+        json!(0),
+        json!(true),
+        json!([]),
+        json!({"compile": null}),
+    ] {
+        assert!(
+            serde_json::from_value::<EdgeKind>(value.clone()).is_err(),
+            "{value}"
+        );
+        assert!(
+            serde_json::from_str::<EdgeKind>(&value.to_string()).is_err(),
+            "{value}"
+        );
+    }
+}
+
+#[test]
+fn complete_edge_order_and_inventory_match_the_declared_field_order() {
+    let expected: Vec<Edge> = [
+        ("", EdgeKind::JudgeTrigger, "根"),
+        ("a", EdgeKind::Compile, ""),
+        ("a", EdgeKind::Compile, "a"),
+        ("a", EdgeKind::Compile, "a\0"),
+        ("a", EdgeKind::Compile, "aa"),
+        ("a", EdgeKind::Compile, "é"),
+        ("a", EdgeKind::Compile, "根"),
+        ("a", EdgeKind::BuildInput, ""),
+        ("a", EdgeKind::RuntimeInput, ""),
+        ("a", EdgeKind::TestExecution, ""),
+        ("a", EdgeKind::JudgeTrigger, ""),
+        ("aa", EdgeKind::Compile, ""),
+        ("é", EdgeKind::Compile, ""),
+        ("根", EdgeKind::Compile, ""),
+    ]
+    .into_iter()
+    .map(|(from, kind, to)| Edge {
+        from: from.into(),
+        kind,
+        to: to.into(),
+    })
+    .collect();
+    for (i, a) in expected.iter().enumerate() {
+        for (j, b) in expected.iter().enumerate() {
+            assert_eq!(a.cmp(b), i.cmp(&j), "indices {i}, {j}");
+            assert_eq!(a.partial_cmp(b), Some(i.cmp(&j)), "indices {i}, {j}");
+            assert_eq!(a == b, i == j, "indices {i}, {j}");
+        }
+        assert_eq!(a.clone(), *a);
+    }
+    let row: BTreeSet<&Edge> = expected.iter().rev().chain(expected.iter()).collect();
+    let actual = chrono_judge_filemap::verified_graph::edge_inventory(&row);
+    assert_eq!(actual, expected.iter().collect::<Vec<_>>());
+}
+
+#[test]
+fn edge_json_adapters_preserve_fields_and_report_invalid_inputs() {
+    let edge = Edge {
+        from: "根\0".into(),
+        kind: EdgeKind::BuildInput,
+        to: "é".into(),
+    };
+    let expected = json!({"from": "根\0", "kind": "build-input", "to": "é"});
+    assert_eq!(serde_json::to_value(&edge).unwrap(), expected);
+    assert_eq!(serde_json::from_value::<Edge>(expected).unwrap(), edge);
+    let text = r#"{"to":"\u00e9","kind":"build-input","from":"根\u0000"}"#;
+    assert_eq!(serde_json::from_str::<Edge>(text).unwrap(), edge);
+    assert_eq!(
+        format!("{edge:?}"),
+        "Edge { from: \"根\\0\", kind: BuildInput, to: \"é\" }"
+    );
+    for value in [
+        json!({"from": "a", "kind": "compile"}),
+        json!({"kind": "compile", "to": "b"}),
+        json!({"from": "a", "to": "b"}),
+        json!({"from": 1, "kind": "compile", "to": "b"}),
+        json!({"from": "a", "kind": "Compile", "to": "b"}),
+        json!({"from": "a", "kind": "compile", "to": null}),
+    ] {
+        assert!(serde_json::from_value::<Edge>(value.clone()).is_err());
+        assert!(serde_json::from_str::<Edge>(&value.to_string()).is_err());
+    }
+}
+
+#[test]
+fn complete_seed_order_matches_all_four_fields_and_preserves_btree_members() {
+    let expected: Vec<Seed> = [
+        ("", "z", "z", "z"),
+        ("a", "", "z", "z"),
+        ("a", "a", "", "z"),
+        ("a", "a", "a", ""),
+        ("a", "a", "a", "\0"),
+        ("a", "a", "a", "a"),
+        ("a", "a", "a", "a\0"),
+        ("a", "a", "a", "aa"),
+        ("a", "a", "a", "é"),
+        ("a", "a", "a", "根"),
+        ("a", "a", "b", ""),
+        ("a", "b", "", ""),
+        ("b", "", "", ""),
+        ("根", "", "", ""),
+    ]
+    .into_iter()
+    .map(|(id, node, reference, reason)| Seed {
+        id: id.into(),
+        node: node.into(),
+        reference: reference.into(),
+        reason: reason.into(),
+    })
+    .collect();
+    for (i, a) in expected.iter().enumerate() {
+        for (j, b) in expected.iter().enumerate() {
+            assert_eq!(a.cmp(b), i.cmp(&j), "indices {i}, {j}");
+            assert_eq!(a.partial_cmp(b), Some(i.cmp(&j)), "indices {i}, {j}");
+            assert_eq!(a == b, i == j, "indices {i}, {j}");
+        }
+        assert_eq!(a.clone(), *a);
+    }
+    let actual: BTreeSet<Seed> = expected
+        .iter()
+        .rev()
+        .chain(expected.iter())
+        .cloned()
+        .collect();
+    assert_eq!(actual.into_iter().collect::<Vec<_>>(), expected);
+}
+
+#[test]
+fn seed_json_adapters_preserve_each_field_and_reject_missing_or_nonstring_fields() {
+    if !chrono_git_boundary::isolated_git() {
+        return;
+    }
+    let seed = Seed {
+        id: "id\0".into(),
+        node: "根".into(),
+        reference: "é".into(),
+        reason: "".into(),
+    };
+    let expected = json!({"id":"id\0","node":"根","reference":"é","reason":""});
+    assert_eq!(serde_json::to_value(&seed).unwrap(), expected);
+    assert_eq!(
+        serde_json::from_value::<Seed>(expected.clone()).unwrap(),
+        seed
+    );
+    let text = r#"{"reason":"","reference":"\u00e9","node":"根","id":"id\u0000"}"#;
+    assert_eq!(serde_json::from_str::<Seed>(text).unwrap(), seed);
+    assert_eq!(
+        format!("{seed:?}"),
+        "Seed { id: \"id\\0\", node: \"根\", reference: \"é\", reason: \"\" }"
+    );
+    for field in ["id", "node", "reference", "reason"] {
+        let mut missing = expected.clone();
+        missing.as_object_mut().unwrap().remove(field);
+        let mut nonstring = expected.clone();
+        nonstring[field] = json!(null);
+        for value in [missing, nonstring] {
+            assert!(serde_json::from_value::<Seed>(value.clone()).is_err());
+            assert!(serde_json::from_str::<Seed>(&value.to_string()).is_err());
+        }
+    }
+}
+
+#[test]
+fn typed_union_preserves_full_order_exact_origins_and_flat_json_transport() {
+    let expected = [
+        ("", EdgeKind::JudgeTrigger, "根", Origin::Candidate),
+        ("a", EdgeKind::Compile, "", Origin::Base),
+        ("a", EdgeKind::Compile, "a\0", Origin::Both),
+        ("a", EdgeKind::Compile, "aa", Origin::Candidate),
+        ("a", EdgeKind::BuildInput, "", Origin::Base),
+        ("a", EdgeKind::JudgeTrigger, "根", Origin::Both),
+        ("é", EdgeKind::Compile, "", Origin::Candidate),
+        ("根", EdgeKind::Compile, "", Origin::Base),
+    ];
+    let mut base = BTreeSet::new();
+    let mut candidate = BTreeSet::new();
+    for (from, kind, to, origin) in expected.into_iter().rev() {
+        let edge = Edge {
+            from: from.into(),
+            kind,
+            to: to.into(),
+        };
+        if origin != Origin::Candidate {
+            base.insert(edge.clone());
+            base.insert(edge.clone());
+        }
+        if origin != Origin::Base {
+            candidate.insert(edge.clone());
+            candidate.insert(edge);
+        }
+    }
+    let out = graph::union(&base, &candidate);
+    assert_eq!(out.len(), expected.len());
+    for (entry, (from, kind, to, origin)) in out.iter().zip(expected) {
+        assert_eq!(
+            (
+                &*entry.edge.from,
+                entry.edge.kind,
+                &*entry.edge.to,
+                entry.origin
+            ),
+            (from, kind, to, origin)
+        );
+        let wire_origin = match origin {
+            Origin::Base => "base",
+            Origin::Candidate => "candidate",
+            Origin::Both => "both",
+        };
+        let value = json!({"from": from, "kind": kind, "to": to, "origin": wire_origin});
+        assert_eq!(serde_json::to_value(entry).unwrap(), value);
+        for decoded in [
+            serde_json::from_value::<graph::UnionEdge>(value.clone()).unwrap(),
+            serde_json::from_str::<graph::UnionEdge>(&value.to_string()).unwrap(),
+            entry.clone(),
+        ] {
+            assert_eq!(decoded.edge, entry.edge);
+            assert_eq!(decoded.origin, origin);
+        }
+        assert_eq!(
+            format!("{entry:?}"),
+            format!("UnionEdge {{ edge: {:?}, origin: {origin:?} }}", entry.edge)
+        );
+    }
+    for value in [
+        json!({"from":"a","kind":"compile","to":"b"}),
+        json!({"from":"a","kind":"compile","to":"b","origin":"Both"}),
+        json!({"from":"a","kind":"compile","to":"b","origin":null}),
+        json!({"from":"a","kind":"compile","origin":"both"}),
+    ] {
+        assert!(serde_json::from_value::<graph::UnionEdge>(value.clone()).is_err());
+        assert!(serde_json::from_str::<graph::UnionEdge>(&value.to_string()).is_err());
+    }
+}
+
+#[test]
+fn indexed_closure_preserves_shortest_ties_edge_kinds_and_seed_identity() {
+    let rows = [
+        ("根", EdgeKind::RuntimeInput, "a"),
+        ("根", EdgeKind::Compile, "z"),
+        ("根", EdgeKind::Compile, "a"),
+        ("a", EdgeKind::Compile, "end"),
+        ("z", EdgeKind::Compile, "end"),
+        ("end", EdgeKind::TestExecution, "test:t"),
+        ("test:t", EdgeKind::RuntimeInput, "根"),
+    ];
+    let seed = |id: &str, node: &str| Seed {
+        id: id.into(),
+        node: node.into(),
+        reference: "explicit".into(),
+        reason: "boundary".into(),
+    };
+    let seeds = [seed("s", "根"), seed("other", "z"), seed("isolated", "孤")];
+    let allowed = oracle_edges(&rows);
+    let mut edges = graph::union(&BTreeSet::new(), &allowed);
+    // Input order and repeated identical edges cannot change adjacency ordering.
+    edges.reverse();
+    edges.push(edges[0].clone());
+    let closure = graph::closure(&edges, &seeds);
+    let expected = vec![
+        Edge {
+            from: "根".into(),
+            kind: EdgeKind::Compile,
+            to: "a".into(),
+        },
+        Edge {
+            from: "a".into(),
+            kind: EdgeKind::Compile,
+            to: "end".into(),
+        },
+    ];
+    assert_eq!(closure.witness("s", "end"), Some(expected));
+    assert_eq!(closure.witness("other", "end").unwrap().len(), 1);
+    assert_eq!(closure.witness("isolated", "孤"), Some(vec![]));
+    assert_eq!(closure.witness("isolated", "end"), None);
+    assert_eq!(closure.selected_tests(), BTreeSet::from(["test:t".into()]));
+    assert_eq!(closure.traversed.len(), allowed.len());
+    assert!(closure.traversed.iter().all(|edge| {
+        allowed.contains(&edge.edge)
+            && edge
+                .seeds
+                .entries()
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                == ["other", "s"]
+    }));
+    // Existing shared-ID behavior: reached causes merge, the last tree owns that ID.
+    let duplicate = graph::closure(&edges, &[seed("same", "根"), seed("same", "孤")]);
+    assert!(duplicate.reached["end"].contains("same"));
+    assert_eq!(duplicate.witness("same", "end"), None);
+    assert_eq!(duplicate.witness("same", "孤"), Some(vec![]));
+}
+
+#[test]
+fn cause_state_merges_exact_ids_clones_independently_and_keeps_json_arrays() {
+    use graph::CauseSet;
+    let mut causes = CauseSet::default();
+    assert_eq!(causes.len(), 0);
+    assert_eq!(causes.first(), None);
+    for name in ["z", "根\0", "a\0", "é", "", "a", "e\u{301}"] {
+        assert!(causes.insert(name));
+        assert!(causes.contains(name));
+        let before = serde_json::to_value(&causes).unwrap();
+        assert!(!causes.insert(&String::from(name)));
+        assert_eq!(serde_json::to_value(&causes).unwrap(), before);
+    }
+    let expected = json!(["", "a", "a\0", "e\u{301}", "z", "é", "根\0"]);
+    assert_eq!(causes.len(), 7);
+    assert_eq!(causes.first().map(String::as_str), Some(""));
+    assert_eq!(serde_json::to_value(&causes).unwrap(), expected);
+    for missing in ["a\0x", "根", "É", "missing"] {
+        assert!(!causes.contains(missing));
+    }
+    let mut copy = causes.clone();
+    assert!(copy.insert("new"));
+    assert!(!causes.contains("new"));
+    assert_eq!(serde_json::to_value(&causes).unwrap(), expected);
+    let decoded: CauseSet = serde_json::from_value(json!([
+        "根\0", "é", "z", "a\0", "a", "", "e\u{301}", "a", "根\0"
+    ]))
+    .unwrap();
+    assert_eq!(serde_json::to_value(decoded).unwrap(), expected);
+    assert_eq!(
+        serde_json::to_value(serde_json::from_str::<CauseSet>("[]").unwrap()).unwrap(),
+        json!([])
+    );
+    for invalid in [json!(null), json!({}), json!(["a", 1]), json!([null])] {
+        assert!(serde_json::from_value::<CauseSet>(invalid).is_err());
+    }
+}
+
+#[test]
+fn propagation_projects_fifo_names_and_complete_typed_rows_into_the_actual_consumer() {
+    use chrono_judge_filemap::verified_graph::{propagate, seed_topology};
+    let allowed = oracle_edges(&[
+        ("根\0", EdgeKind::Compile, "a"),
+        ("根\0", EdgeKind::RuntimeInput, "a"),
+        ("根\0", EdgeKind::TestExecution, "é"),
+        ("a", EdgeKind::BuildInput, "é"),
+        ("é", EdgeKind::Compile, "é"),
+        ("é", EdgeKind::JudgeTrigger, "根\0"),
+        ("孤", EdgeKind::TestExecution, "unreachable"),
+    ]);
+    let edges = graph::union(&BTreeSet::new(), &allowed);
+    let seed = |id: &str, node: &str| Seed {
+        id: id.into(),
+        node: node.into(),
+        reference: "explicit".into(),
+        reason: "projection".into(),
+    };
+    let seeds = [seed("s", "根\0"), seed("isolated", "")];
+    let topology = seed_topology(&edges, &seeds);
+    let output = propagate(&topology, topology.indices.roots[0]);
+    let actual: Vec<_> = output
+        .rows
+        .iter()
+        .map(|row| {
+            (
+                row.node,
+                row.outgoing
+                    .iter()
+                    .map(|edge| (edge.from.as_str(), edge.kind, edge.to.as_str()))
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        actual,
+        vec![
+            (
+                "根\0",
+                vec![
+                    ("根\0", EdgeKind::Compile, "a"),
+                    ("根\0", EdgeKind::RuntimeInput, "a"),
+                    ("根\0", EdgeKind::TestExecution, "é")
+                ]
+            ),
+            ("a", vec![("a", EdgeKind::BuildInput, "é")]),
+            (
+                "é",
+                vec![
+                    ("é", EdgeKind::Compile, "é"),
+                    ("é", EdgeKind::JudgeTrigger, "根\0")
+                ]
+            ),
+        ]
+    );
+    assert_eq!(
+        output.predecessors.witness("é").unwrap(),
+        vec![Edge {
+            from: "根\0".into(),
+            kind: EdgeKind::TestExecution,
+            to: "é".into(),
+        }]
+    );
+    assert_eq!(output.predecessors.witness("unreachable"), None);
+    let isolated = propagate(&topology, topology.indices.roots[1]);
+    assert_eq!(isolated.rows.len(), 1);
+    assert_eq!(isolated.rows[0].node, "");
+    assert!(isolated.rows[0].outgoing.is_empty());
+    assert_eq!(isolated.predecessors.witness(""), Some(vec![]));
+
+    let closure = graph::closure(&edges, &seeds);
+    assert_eq!(
+        serde_json::to_value(&closure.reached).unwrap(),
+        json!({"": ["isolated"], "a": ["s"], "é": ["s"], "根\0": ["s"]})
+    );
+    assert_eq!(closure.traversed.len(), 6);
+    assert!(closure.traversed.iter().all(|row| {
+        row.seeds
+            .entries()
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            == ["s"]
+    }));
+    assert_eq!(closure.selected_tests(), BTreeSet::from(["é".into()]));
+    assert_eq!(closure.witness("s", "é"), output.predecessors.witness("é"));
+}
+
+#[test]
+fn predecessor_state_roundtrips_the_actual_sparse_json_and_cloned_witnesses() {
+    let parents = json!({
+        "": null,
+        "a": {"from":"", "kind":"compile", "to":"a"},
+        "根\0": {"from":"a", "kind":"test-execution", "to":"根\0"}
+    });
+    let value = json!({"reached":{}, "predecessors":{"seed\0":parents}, "traversed":[]});
+    let state: graph::Closure = serde_json::from_value(value.clone()).unwrap();
+    let expected = vec![
+        Edge {
+            from: "".into(),
+            kind: EdgeKind::Compile,
+            to: "a".into(),
+        },
+        Edge {
+            from: "a".into(),
+            kind: EdgeKind::TestExecution,
+            to: "根\0".into(),
+        },
+    ];
+    assert_eq!(state.witness("seed\0", "根\0"), Some(expected.clone()));
+    assert_eq!(state.clone().witness("seed\0", "根\0"), Some(expected));
+    assert_eq!(state.witness("seed\0", ""), Some(vec![]));
+    assert_eq!(state.witness("missing", ""), None);
+    assert_eq!(state.witness("seed\0", "missing"), None);
+    assert_eq!(serde_json::to_value(&state).unwrap(), value);
+    let text = serde_json::to_string(&state).unwrap();
+    let decoded: graph::Closure = serde_json::from_str(&text).unwrap();
+    assert_eq!(serde_json::to_value(&decoded).unwrap(), value);
+}
+
+#[test]
+fn predecessor_witness_rejects_serialized_cycles_missing_rows_and_wrong_targets() {
+    if !chrono_git_boundary::isolated_git() {
+        return;
+    }
+    for parents in [
+        json!({"a":{"from":"a", "kind":"compile", "to":"a"}}),
+        json!({"a":{"from":"b", "kind":"compile", "to":"a"},
+               "b":{"from":"a", "kind":"runtime-input", "to":"b"}}),
+        json!({"a":{"from":"missing", "kind":"compile", "to":"a"}}),
+        json!({"":null, "a":{"from":"", "kind":"compile", "to":"wrong"}}),
+    ] {
+        let state: graph::Closure = serde_json::from_value(json!({
+            "reached":{}, "predecessors":{"s":parents}, "traversed":[]
+        }))
+        .unwrap();
+        assert_eq!(state.witness("s", "a"), None, "{state:?}");
+    }
+    for parents in [
+        json!([]),
+        json!(null),
+        json!({"a":42}),
+        json!({"a":{"from":"", "kind":"unknown", "to":"a"}}),
+    ] {
+        assert!(
+            serde_json::from_value::<graph::Closure>(json!({
+                "reached":{}, "predecessors":{"s":parents}, "traversed":[]
+            }))
+            .is_err()
+        );
+    }
+}
+
+#[test]
+fn loader_missing_malformed_inputs_are_errors_not_empty_impact() {
+    if !chrono_git_boundary::isolated_git() {
+        return;
+    }
+    let mut a = values();
+    a.remove(FM);
+    assert!(Registrations::load(&a, CONFIG).is_err());
+    let mut a = values();
+    a.get_mut(FM).unwrap()["files"] = json!({});
+    assert!(Registrations::load(&a, CONFIG).is_err());
+    let mut a = values();
+    a.get_mut(FM).unwrap()["files"][0]["edges"][0]["kind"] = "guessed".into();
+    assert!(Registrations::load(&a, CONFIG).is_err());
+}
+use chrono_judge_registration::Registrations;
+
+#[test]
+fn shared_inventory_retains_definitions_and_only_resolves_unique_aliases() {
+    let mut v = values();
+    script_pair(&mut v, "t");
+    let r = load(&v);
+    let nodes = r.node_data();
+    assert!(nodes["test:t"].unique().is_none());
+    assert_eq!(
+        nodes["test:t"]
+            .definitions
+            .iter()
+            .map(|d| (
+                d.identity.as_str(),
+                d.value["actions"]["execute"]["operation"].as_str().unwrap()
+            ))
+            .collect::<Vec<_>>(),
+        [("project:t", "execute.t"), ("script:t", "script.st")]
+    );
+    assert_eq!(nodes["project:t"].unique().unwrap().identity, "project:t");
+    assert_eq!(nodes["script:t"].unique().unwrap().identity, "script:t");
+    script_pair(&mut v, "st2");
+    let r = load(&v);
+    let nodes = r.node_data();
+    assert_eq!(
+        nodes["test:t"].unique().unwrap().value["actions"]["execute"]["operation"],
+        "execute.t"
+    );
+    assert_eq!(
+        nodes["test:st2"].unique().unwrap().value["actions"]["execute"]["operation"],
+        "script.st"
+    );
+}
+
+#[test]
+fn file_origin_project_edge_change_points_to_its_actual_record() {
+    let a = values();
+    let mut b = a.clone();
+    b.get_mut(FM).unwrap()["project_edges"]
+        .as_array_mut()
+        .unwrap()
+        .push(edge("file:doc.txt", "compile", "test:t"));
+    let (i, f) = run(&a, &b, &[delta(FM)]);
+    let finding = f.iter().find(|f| f.code == "E_EDGE_TYPE").unwrap();
+    assert!(finding.delta_refs[0].starts_with("/records/filemap/project_edges/"));
+    assert!(i.changes.iter().any(|c| c.record == finding.delta_refs[0]));
+}
+#[test]
+fn file_edge_only_removal_and_addition_preserve_targets() {
+    let a = values();
+    let mut b = a.clone();
+    b.get_mut(FM).unwrap()["files"][0]["edges"] = json!([]);
+    let (i, f) = run(&a, &b, &[delta(FM)]);
+    assert!(f.is_empty());
+    assert_eq!(tests(&i), ["test:t"]);
+    assert!(
+        i.seed_causes
+            .iter()
+            .any(|s| s.node == "project:p" && s.reason == "edge-change")
+    );
+    let (i, f) = run(&b, &a, &[delta(FM)]);
+    assert!(f.is_empty());
+    assert_eq!(tests(&i), ["test:t"]);
+    assert!(
+        i.edges
+            .iter()
+            .any(|e| e.origin == Origin::Candidate && e.edge.from == "file:src.bin")
+    );
+}
+#[test]
+fn identity_edge_and_input_array_reorder_is_no_semantic_change() {
+    let mut a = values();
+    a.get_mut(CONFIG).unwrap()["environment"]["inputs"] =
+        json!([{"id":"a","location":"/a","sha256":null},{"id":"b","location":"/b","sha256":null}]);
+    a.get_mut(FM).unwrap()["files"][0]["edges"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"kind":"build-input","to":"project:t"}));
+    a.get_mut(FM).unwrap()["project_edges"]
+        .as_array_mut()
+        .unwrap()
+        .push(edge("project:t", "test-execution", "test:t"));
+    let mut b = a.clone();
+    b.get_mut(CONFIG).unwrap()["environment"]["inputs"]
+        .as_array_mut()
+        .unwrap()
+        .reverse();
+    b.get_mut(FM).unwrap()["files"][0]["edges"]
+        .as_array_mut()
+        .unwrap()
+        .reverse();
+    b.get_mut(FM).unwrap()["project_edges"]
+        .as_array_mut()
+        .unwrap()
+        .reverse();
+    let (i, f) = run(&a, &b, &[delta(CONFIG), delta(FM)]);
+    assert!(f.is_empty());
+    assert!(i.changes.is_empty());
+    assert!(tests(&i).is_empty());
+}
+
+#[test]
+fn changed_cost_keeps_distinct_old_new_values_and_references() {
+    let mut a = values();
+    a.get_mut(FM).unwrap()["cost_models"]["unknown"]["cpu_ms"] = json!(17);
+    a.get_mut(FM).unwrap()["cost_models"]["unknown"]["basis"] = json!("old fixture measurement");
+    let mut b = a.clone();
+    b.get_mut(FM).unwrap()["cost_models"]["new"] = json!({"cpu_ms":null,"wall_ms":null,"peak_rss_bytes":null,"io_bytes":null,"basis":"new estimate unknown"});
+    b.get_mut(FM).unwrap()["test_costs"][0]["cost"] = "new".into();
+    let (i, f) = run(&a, &b, &[delta("src.bin"), delta(FM)]);
+    assert!(f.is_empty());
+    assert_eq!(tests(&i), ["test:t"]);
+    let cost = &i.records["/records/filemap/test_costs/t"];
+    assert_eq!(cost.base.as_ref().unwrap().value["cost"], "unknown");
+    assert_eq!(
+        i.records["/records/filemap/cost_models/unknown"]
+            .base
+            .as_ref()
+            .unwrap()
+            .value["cpu_ms"],
+        17
+    );
+    assert_eq!(cost.candidate.as_ref().unwrap().value["cost"], "new");
+    assert_eq!(
+        i.records["/records/filemap/cost_models/new"]
+            .candidate
+            .as_ref()
+            .unwrap()
+            .value["cpu_ms"],
+        json!(null)
+    );
+}
+
+#[test]
+fn removed_test_record_seeds_alias_and_exposes_retained_dangling_edge() {
+    let a = values();
+    let mut b = a.clone();
+    b.get_mut(PROJECTS).unwrap()["projects"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|p| p["id"] != "t");
+    let (i, f) = run(&a, &b, &[delta(PROJECTS)]);
+    assert!(
+        i.seed_causes
+            .iter()
+            .any(|s| s.node == "test:t" && s.reference == "/records/projects/projects/t")
+    );
+    assert!(
+        tests(&i).is_empty(),
+        "node removal alone does not traverse an incoming execution edge"
+    );
+    assert_eq!(f.len(), 1);
+    assert_eq!(f[0].code, "E_DANGLING_EDGE");
+    assert_eq!(f[0].delta_refs, ["/records/projects/projects/t"]);
+    assert_eq!(f[0].causes, ["test:t"]);
+    let (i, f) = run(&a, &b, &[delta(PROJECTS), delta("src.bin")]);
+    assert_eq!(tests(&i), ["test:t"]);
+    assert!(!i.required_tests[0].candidate_present);
+    assert_eq!(f.len(), 1);
+}
+
+#[test]
+fn execution_plan_order_is_semantic_and_selects_only_explicit_edges() {
+    let mut a = values();
+    a.get_mut(FM).unwrap()["schema_version"] = json!(2);
+    a.get_mut(FM).unwrap()["execution_plans"] = json!({"test:t": {
+        "operations":["prepare.p", "execute.t"], "timeout_seconds":30,"output_limit_bytes":4096
+    }});
+    a.get_mut(PROJECTS).unwrap()["projects"][0]["actions"]["build"] =
+        json!({"operation":"prepare.p","tool":"sh","argv":["-c","exit 0"]});
+    let mut b = a.clone();
+    b.get_mut(FM).unwrap()["execution_plans"]["test:t"]["operations"] =
+        json!(["execute.t", "prepare.p"]);
+    let (i, f) = run(&a, &b, &[]);
+    assert!(f.is_empty(), "{f:?}");
+    assert_eq!(tests(&i), vec!["test:t"]);
+    assert!(
+        i.changes
+            .iter()
+            .any(|c| c.record.ends_with("/execution_plans/test:t")
+                && c.fields.contains(&"/operations".into()))
+    );
+    for v in [&mut a, &mut b] {
+        v.get_mut(FM).unwrap()["project_edges"] = json!([]);
+    }
+    assert!(tests(&run(&a, &b, &[]).0).is_empty());
+}
+
+#[test]
+fn full_assignment_changes_select_explicit_old_and_new_complete_plans() {
+    let mut a = values();
+    a.get_mut(CONFIG).unwrap()["schema_version"] = json!(3);
+    a.get_mut(CONFIG).unwrap()["facts_git"] = json!({"tool":"sh","input":"data"});
+    a.get_mut(CONFIG).unwrap()["environment"]["inputs"] =
+        json!([{"id":"data","location":"data","presence":"present","sha256":"a".repeat(64)}]);
+    a.get_mut(CONFIG).unwrap()["input_closure"]["bindings"] = json!([]);
+    a.get_mut(CONFIG).unwrap()["execution_units"] = json!({"units":{"one":{"tests":["test:t"],"report_path":".chrono-harness/state/one.json"},"two":{"tests":["test:t2"],"report_path":".chrono-harness/state/two.json"}},"shared_operations":{},"collection_limits":{"manifest_bytes":1024,"report_bytes":67108864},"report_path":".chrono-harness/state/collected.json"});
+    a.get_mut(PROJECTS).unwrap()["projects"][0]["actions"]["build"] =
+        json!({"operation":"prepare.p","tool":"sh","argv":["-c","exit 0"]});
+    let mut p2 = project("p2", "production", "t2");
+    p2["actions"]["build"] = json!({"operation":"prepare.p2","tool":"sh","argv":["-c","exit 0"]});
+    a.get_mut(PROJECTS).unwrap()["projects"]
+        .as_array_mut()
+        .unwrap()
+        .extend([p2, project("t2", "test", "p2")]);
+    a.get_mut(PROJECTS).unwrap()["owners"]
+        .as_array_mut()
+        .unwrap()
+        .extend([json!("p2"), json!("t2")]);
+    a.get_mut(FM).unwrap()["schema_version"] = json!(2);
+    a.get_mut(FM).unwrap()["execution_plans"] = json!({"test:t":{"operations":["prepare.p","execute.t"],"timeout_seconds":30,"output_limit_bytes":4096},"test:t2":{"operations":["prepare.p2","execute.t2"],"timeout_seconds":30,"output_limit_bytes":4096}});
+    a.get_mut(FM).unwrap()["project_edges"]
+        .as_array_mut()
+        .unwrap()
+        .push(edge("project:p2", "test-execution", "test:t2"));
+    a.get_mut(FM).unwrap()["test_costs"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"test":"t2","cost":"unknown"}));
+    let mut b = a.clone();
+    b.get_mut(CONFIG).unwrap()["execution_units"]["units"]["one"]["tests"] = json!(["test:t2"]);
+    b.get_mut(CONFIG).unwrap()["execution_units"]["units"]["two"]["tests"] = json!(["test:t"]);
+    let (impact, findings) = run(&a, &b, &[]);
+    assert!(findings.is_empty(), "{findings:?}");
+    assert_eq!(tests(&impact), ["test:t", "test:t2"]);
+}
+
+#[test]
+fn declared_judge_inputs_remain_valid_when_migration_selects_them() {
+    let mut a = values();
+    a.get_mut(CONFIG).unwrap()["environment"]["inputs"] =
+        json!([{"id":"data","location":"data","sha256":"a".repeat(64)}]);
+    a.get_mut(FM).unwrap()["project_edges"]
+        .as_array_mut()
+        .unwrap()
+        .extend([
+            edge("tool:sh", "runtime-input", "judge:registration"),
+            edge("environment:PATH", "runtime-input", "judge:registration"),
+            edge("input:data", "judge-trigger", "judge:registration"),
+        ]);
+    for mode in 0..3 {
+        let mut b = a.clone();
+        match mode {
+            0 => b.get_mut(CONFIG).unwrap()["tools"][0]["expected_version"] = json!("new"),
+            1 => b.get_mut(CONFIG).unwrap()["environment"]["values"]["PATH"] = json!("different"),
+            _ => {
+                b.get_mut(CONFIG).unwrap()["environment"]["inputs"][0]["sha256"] =
+                    json!("b".repeat(64))
+            }
+        }
+        let (impact, findings) = run(&a, &b, &[]);
+        assert!(findings.is_empty(), "{findings:?}");
+        assert!(impact.judges.iter().any(|j| j.node == "judge:registration"));
+        assert!(
+            tests(&impact).is_empty(),
+            "judge inputs must not infer business test edges"
+        );
+    }
+}
+
+#[test]
+fn tool_environment_and_retained_input_records_use_only_explicit_consumers() {
+    let mut a = values();
+    a.get_mut(FM).unwrap()["project_edges"]
+        .as_array_mut()
+        .unwrap()
+        .extend([
+            edge("tool:sh", "runtime-input", "project:p"),
+            edge("environment:PATH", "runtime-input", "project:p"),
+            edge("input:data", "runtime-input", "project:p"),
+        ]);
+    a.get_mut(CONFIG).unwrap()["environment"]["inputs"] =
+        json!([{"id":"data","location":"data","sha256":"a".repeat(64)}]);
+    for mode in 0..3 {
+        let mut b = a.clone();
+        match mode {
+            0 => b.get_mut(CONFIG).unwrap()["tools"][0]["expected_version"] = json!("new"),
+            1 => b.get_mut(CONFIG).unwrap()["environment"]["values"]["PATH"] = json!("different"),
+            _ => {
+                b.get_mut(CONFIG).unwrap()["environment"]["inputs"][0]["sha256"] =
+                    json!("b".repeat(64))
+            }
+        }
+        let (i, f) = run(&a, &b, &[]);
+        assert!(f.is_empty(), "{f:?}");
+        assert_eq!(tests(&i), vec!["test:t"]);
+        let mut disconnected = a.clone();
+        disconnected.get_mut(FM).unwrap()["project_edges"] = json!([]);
+        b.get_mut(FM).unwrap()["project_edges"] = json!([]);
+        assert!(tests(&run(&disconnected, &b, &[]).0).is_empty());
+    }
+}
+
+#[test]
+fn explicit_historical_ambiguity_mapping_preserves_definitions_but_candidate_collision_fails() {
+    let mut a = values();
+    script_pair(&mut a, "t");
+    let mut b = a.clone();
+    b.get_mut(PROJECTS).unwrap()["scripts"] = json!([]);
+    b.get_mut(FM).unwrap()["project_edges"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|e| e["from"] != "script:s");
+    b.get_mut(WORKFLOW).unwrap()["schema_version"] = json!(2);
+    b.get_mut(WORKFLOW).unwrap()["historical_profiles"] = json!([{"id":"chrono-ci-check/v1","filemap_version":1,"profile_path":"profile.json","script":"decoder","test":"decoder-tests","mappings":[],"legacy_records":[],"ambiguities":[{"node":"test:t","definitions":["project:t","script:t"],"replacement":"test:t"}]}]);
+    let (i, f) = run(&a, &b, &[delta("src.bin")]);
+    assert!(f.iter().all(|f| f.code != "E_NODE_AMBIGUOUS"), "{f:?}");
+    assert_eq!(i.nodes["test:t"].base_definitions.len(), 2);
+    assert_eq!(tests(&i), vec!["test:t"]);
+    let mut missing = b.clone();
+    missing.get_mut(WORKFLOW).unwrap()["historical_profiles"][0]["ambiguities"] = json!([]);
+    assert!(
+        run(&a, &missing, &[delta("src.bin")])
+            .1
+            .iter()
+            .any(|f| f.code == "E_NODE_AMBIGUOUS")
+    );
+    let mut collision = a.clone();
+    collision.insert(WORKFLOW.into(), b[WORKFLOW].clone());
+    assert!(
+        run(&a, &collision, &[delta("src.bin")])
+            .1
+            .iter()
+            .any(|f| f.code == "E_NODE_AMBIGUOUS")
+    );
+}
+
+#[test]
+fn retained_effective_environment_api_preserves_old_edges_and_rejects_unknown_facts() {
+    let mut a = values();
+    a.get_mut(CONFIG).unwrap()["environment"]["inherit"] = json!(["MODE"]);
+    a.get_mut(FM).unwrap()["project_edges"]
+        .as_array_mut()
+        .unwrap()
+        .push(edge("environment:MODE", "runtime-input", "project:p"));
+    let mut b = a.clone();
+    b.get_mut(CONFIG).unwrap()["environment"]["inherit"] = json!([]);
+    b.get_mut(FM).unwrap()["project_edges"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|e| e["from"] != "environment:MODE");
+    let endpoints = json!({"base":{"inherited":{"MODE":"old"},"environment":{"MODE":"old"}},"candidate":{"inherited":{},"environment":{}}});
+    let mut evidence = json!({"schema":"chrono-effective-inputs/v1","identity":chrono_harness::wire::digest(&endpoints).unwrap(),"endpoints":endpoints});
+    let (impact, findings) =
+        chrono_judge_filemap::produce_with_inputs(&load(&a), &load(&b), &[], &evidence).unwrap();
+    assert!(findings.is_empty());
+    assert_eq!(impact.tests, vec!["test:t"]);
+    assert!(
+        impact
+            .seed_causes
+            .iter()
+            .any(|s| s.node == "environment:MODE")
+    );
+    evidence["endpoints"]["candidate"]["environment"]["UNKNOWN"] = json!("unrepresented");
+    evidence["identity"] = json!(chrono_harness::wire::digest(&evidence["endpoints"]).unwrap());
+    assert!(
+        chrono_judge_filemap::produce_with_inputs(&load(&a), &load(&b), &[], &evidence).is_err()
+    );
+}
+
+#[test]
+fn artifact_owner_changes_and_removal_preserve_explicit_endpoint_consumers() {
+    let mut a = values();
+    script_pair(&mut a, "st");
+    a.get_mut(CONFIG).unwrap()["artifacts"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"path":"declared outputs/","owner":"p","kind":"output","tracked":false}));
+    let mut b = a.clone();
+    b.get_mut(CONFIG).unwrap()["artifacts"]
+        .as_array_mut()
+        .unwrap()
+        .last_mut()
+        .unwrap()["owner"] = json!("s");
+    let (impact, findings) = run(&a, &b, &[delta(CONFIG)]);
+    assert!(findings.is_empty());
+    assert_eq!(tests(&impact), ["test:st", "test:t"]);
+    assert!(impact.seed_causes.iter().any(|s| s.node == "project:p"));
+    assert!(impact.seed_causes.iter().any(|s| s.node == "script:s"));
+    let mut removed = a.clone();
+    removed.get_mut(CONFIG).unwrap()["artifacts"]
+        .as_array_mut()
+        .unwrap()
+        .pop();
+    let (impact, findings) = run(&a, &removed, &[delta(CONFIG)]);
+    assert!(findings.is_empty());
+    assert_eq!(tests(&impact), ["test:t"]);
+    let (impact, findings) = run(&a, &a, &[delta("doc.txt")]);
+    assert!(findings.is_empty());
+    assert!(tests(&impact).is_empty());
+}
+
+#[test]
+fn group_registration_delta_and_endpoints_preserve_every_opaque_test_identity() {
+    let old = values();
+    let mut new = old.clone();
+    new.get_mut(PROJECTS).unwrap()["projects"][1]["actions"]["second"] =
+        json!({"operation":"execute.second","tool":"sh","argv":["-c","exit 0"]});
+    new.get_mut(PROJECTS).unwrap()["projects"][1]["test_groups"] =
+        json!({"t":"execute","opaque-group":"second"});
+    new.get_mut(FM).unwrap()["project_edges"]
+        .as_array_mut()
+        .unwrap()
+        .push(edge("project:p", "test-execution", "test:opaque-group"));
+    new.get_mut(FM).unwrap()["test_costs"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"test":"opaque-group","cost":"unknown"}));
+    for test in ["test:t", "test:opaque-group"] {
+        new.get_mut(FM).unwrap()["project_edges"]
+            .as_array_mut()
+            .unwrap()
+            .push(edge("project:t", "test-execution", test));
+    }
+    for paths in [vec![], vec![delta("src.bin")]] {
+        let (impact, findings) = run(&old, &new, &paths);
+        assert!(findings.is_empty(), "{findings:?}");
+        assert_eq!(tests(&impact), ["test:opaque-group", "test:t"]);
+        assert!(impact.retired_tests.is_empty());
+        assert_eq!(
+            impact.nodes["test:opaque-group"].candidate_definitions[0].identity,
+            "project:t"
+        );
+    }
+    let mut rebound = new.clone();
+    rebound.get_mut(PROJECTS).unwrap()["projects"][1]["test_groups"] =
+        json!({"t":"second","opaque-group":"execute"});
+    let (impact, findings) = run(&new, &rebound, &[]);
+    assert!(findings.is_empty(), "{findings:?}");
+    assert_eq!(tests(&impact), ["test:opaque-group", "test:t"]);
+    let (impact, findings) = run(&new, &old, &[]);
+    assert!(
+        findings.iter().all(|f| f.code != "E_REFERENCE"),
+        "{findings:?}"
+    );
+    assert_eq!(
+        impact
+            .retired_tests
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["test:opaque-group"]
+    );
+}
+
+#[test]
+fn scheduling_cap_claim_changes_and_removal_keep_both_endpoint_targets() {
+    let mut a = values();
+    script_pair(&mut a, "st");
+    a.get_mut(FM).unwrap()["project_edges"]
+        .as_array_mut()
+        .unwrap()
+        .extend([
+            edge("project:t", "test-execution", "test:t"),
+            edge("script:st", "test-execution", "test:st"),
+        ]);
+    a.get_mut(FM).unwrap()["schema_version"] = json!(2);
+    a.get_mut(FM).unwrap()["execution_plans"] = json!({"test:t":{"operations":["execute.t"],"timeout_seconds":30,"output_limit_bytes":4096},"test:st":{"operations":["script.st"],"timeout_seconds":30,"output_limit_bytes":4096}});
+    a.get_mut(FM).unwrap()["execution_scheduling"] = json!({"max_running":2,"resources":["one","two"],"claims":{"execute.t":{"resources":["one"],"outputs":[]},"script.st":{"resources":[],"outputs":[]}}});
+    for mode in 0..4 {
+        let mut b = a.clone();
+        match mode {
+            0 => b.get_mut(FM).unwrap()["execution_scheduling"]["max_running"] = json!(1),
+            1 => {
+                b.get_mut(FM).unwrap()["execution_scheduling"]["claims"]["execute.t"]["resources"] =
+                    json!(["two"])
+            }
+            2 => {
+                b.get_mut(FM)
+                    .unwrap()
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("execution_scheduling");
+            }
+            _ => {
+                b.get_mut(FM).unwrap()["execution_scheduling"]["claims"]["execute.t"]["outputs"] =
+                    json!([".chrono-harness/state/"])
+            }
+        }
+        for (before, after) in [(&a, &b), (&b, &a)] {
+            let (i, f) = run(before, after, &[]);
+            assert!(f.is_empty(), "{f:?}");
+            assert_eq!(
+                tests(&i),
+                if mode == 0 || mode == 2 {
+                    vec!["test:st", "test:t"]
+                } else {
+                    vec!["test:t"]
+                }
+            );
+        }
+    }
+    assert!(tests(&run(&a, &a, &[]).0).is_empty());
+}
+
+#[test]
+fn scheduling_priority_changes_reorder_and_removal_reach_both_endpoint_consumers() {
+    let mut a = values();
+    script_pair(&mut a, "st");
+    a.get_mut(FM).unwrap()["project_edges"]
+        .as_array_mut()
+        .unwrap()
+        .extend([
+            edge("project:t", "test-execution", "test:t"),
+            edge("script:st", "test-execution", "test:st"),
+        ]);
+    a.get_mut(FM).unwrap()["schema_version"] = json!(2);
+    a.get_mut(FM).unwrap()["execution_plans"] = json!({"test:t":{"operations":["execute.t"],"timeout_seconds":30,"output_limit_bytes":4096},"test:st":{"operations":["script.st"],"timeout_seconds":30,"output_limit_bytes":4096}});
+    a.get_mut(FM).unwrap()["execution_scheduling"] = json!({"max_running":2,"priority":["script.st","execute.t"],"resources":[],"claims":{"execute.t":{"resources":[],"outputs":[]},"script.st":{"resources":[],"outputs":[]}}});
+    for priority in [
+        Some(json!(["execute.t", "script.st"])),
+        Some(json!(["execute.t"])),
+        Some(json!([])),
+        None,
+    ] {
+        let mut b = a.clone();
+        if let Some(priority) = priority {
+            b.get_mut(FM).unwrap()["execution_scheduling"]["priority"] = priority;
+        } else {
+            b.get_mut(FM).unwrap()["execution_scheduling"]
+                .as_object_mut()
+                .unwrap()
+                .remove("priority");
+        }
+        for (before, after) in [(&a, &b), (&b, &a)] {
+            let (impact, findings) = run(before, after, &[]);
+            assert!(findings.is_empty(), "{findings:?}");
+            assert_eq!(tests(&impact), ["test:st", "test:t"]);
+        }
+    }
+    assert!(tests(&run(&a, &a, &[]).0).is_empty());
+    let mut empty = a.clone();
+    empty.get_mut(FM).unwrap()["execution_scheduling"]["priority"] = json!([]);
+    let mut absent = empty.clone();
+    absent.get_mut(FM).unwrap()["execution_scheduling"]
+        .as_object_mut()
+        .unwrap()
+        .remove("priority");
+    assert!(tests(&run(&empty, &absent, &[]).0).is_empty());
+    assert!(tests(&run(&absent, &empty, &[]).0).is_empty());
+}
+
+#[test]
+fn scheduling_resource_reassignment_and_artifact_changes_reach_declared_consumers() {
+    let mut a = values();
+    script_pair(&mut a, "st");
+    a.get_mut(FM).unwrap()["project_edges"]
+        .as_array_mut()
+        .unwrap()
+        .extend([
+            edge("project:t", "test-execution", "test:t"),
+            edge("script:st", "test-execution", "test:st"),
+        ]);
+    a.get_mut(FM).unwrap()["schema_version"] = json!(2);
+    a.get_mut(FM).unwrap()["execution_plans"] = json!({"test:t":{"operations":["execute.t"],"timeout_seconds":30,"output_limit_bytes":4096},"test:st":{"operations":["script.st"],"timeout_seconds":30,"output_limit_bytes":4096}});
+    a.get_mut(CONFIG).unwrap()["artifacts"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"path":"out/","owner":"p","kind":"output","tracked":false}));
+    a.get_mut(FM).unwrap()["execution_scheduling"] = json!({"max_running":2,"resources":["one","two"],"claims":{"execute.t":{"resources":["one"],"outputs":["out/"]},"script.st":{"resources":["two"],"outputs":["out/"]}}});
+    for mode in 0..2 {
+        let mut b = a.clone();
+        if mode == 0 {
+            b.get_mut(FM).unwrap()["execution_scheduling"]["claims"]["execute.t"]["resources"] =
+                json!(["two"]);
+        } else {
+            b.get_mut(CONFIG).unwrap()["artifacts"]
+                .as_array_mut()
+                .unwrap()
+                .last_mut()
+                .unwrap()["owner"] = json!("s");
+        }
+        for (before, after) in [(&a, &b), (&b, &a)] {
+            let (i, f) = run(before, after, &[]);
+            assert!(f.is_empty(), "{f:?}");
+            assert_eq!(tests(&i), ["test:st", "test:t"]);
+        }
+    }
+}

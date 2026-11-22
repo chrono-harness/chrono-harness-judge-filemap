@@ -6,6 +6,8 @@ trap 'rm -rf -- "$scratch"' EXIT
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$scratch/cargo}"
 cargo fmt --check --manifest-path crates/judge-filemap/Cargo.toml
 cargo build --locked --manifest-path crates/judge-filemap/Cargo.toml
+cargo fmt --check --manifest-path crates/judge-filemap-tests/Cargo.toml
+cargo test --locked --manifest-path crates/judge-filemap-tests/Cargo.toml
 proof_bindings=()
 prove() {
   local label=$1 root=$2
@@ -35,3 +37,4 @@ cargo metadata --locked --format-version 1 --manifest-path crates/judge-filemap/
 export CHRONO_VERUS_NODES="$scratch/nodes.rs"
 jq -er '[.packages[] | select(.name == "chrono-judge-registration") | .manifest_path | sub("Cargo.toml$"; "src/verified_nodes.rs")] | select(length == 1) | "#[path = " + (first | @json) + "] pub mod nodes;"' "$scratch/packages.json" > "$CHRONO_VERUS_NODES"
 prove verify.filemap-graph crates/judge-filemap/src/verified_graph.rs
+prove verify.filemap-graph-tests crates/judge-filemap-tests/tests/verified_graph.rs
