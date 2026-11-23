@@ -21,3 +21,5 @@ FILEMAP 的端点查询、调度和收集从 PATH 调用固定发行的 `chrono-
 测试从 `tests/fixtures/registration-standard.json` 读取公开响应的端点样例，`registration-variants.json` 按命名场景用 JSON Patch 保存相对改动。两份文件位于 `crates/judge-filemap-tests/` 下，供影响分析与命令边界测试离线使用。
 
 完整调度重新打开 Git 读取器时，FILEMAP 将已观察的继承环境传给 registration。未设置的变量和配置排除的凭据保持缺席。配置中的字面值由读取器从各端点的配置解析。
+
+`chrono-judge-filemap cost-inputs-v1` 为成本判官准备数据。它接收已封存的判官请求，从 registration 的 `filemap-views` 读取两端按原顺序保存的文件和节点，核对前置 FILEMAP 结果和完整 DELTA，返回受影响节点、测试、绑定与原始 Git 观察。
