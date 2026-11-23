@@ -30,6 +30,10 @@ fn main() {
         "incomplete" => {
             reply["candidate"].as_object_mut().unwrap().remove("nodes");
         }
+        "duplicate" => {
+            print!("{{\"error\":\"one\",\"error\":\"two\"}}");
+            return;
+        }
         "error" => {
             eprintln!("registry rejected");
             std::process::exit(2);

@@ -109,6 +109,10 @@ pub fn init_endpoints(root: &Path) {
         let bin = fixture_bin();
         for (mock, command) in [
             (
+                env!("CARGO_BIN_EXE_chrono-test-filemap-runner"),
+                "chrono-harness",
+            ),
+            (
                 env!("CARGO_BIN_EXE_chrono-test-mixed"),
                 "chrono-judge-mixed",
             ),

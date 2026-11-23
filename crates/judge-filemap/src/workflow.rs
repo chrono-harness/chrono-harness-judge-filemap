@@ -1,10 +1,10 @@
 //! Lower explicit workflow test requirements to typed edges before execution.
+use crate::Delta;
 use crate::registration::Endpoint;
 use crate::{
     graph::{Edge, EdgeKind},
     records::Record,
 };
-use chrono_harness::wire::Delta;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 

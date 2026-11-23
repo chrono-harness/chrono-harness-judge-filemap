@@ -1,7 +1,8 @@
 //! Read only named semantic documents for the installed mixed-change classifier.
 use crate::registration::Endpoint;
-use chrono_harness::{
-    CommandSpec, facts, file_identity, resolve_program, run_process_observed, wire::Delta,
+use crate::{
+    Delta,
+    runtime::{Program, Reader},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -34,7 +35,7 @@ fn documents(
     registration: &Endpoint,
     paths: &[String],
     present: &BTreeSet<&str>,
-    mut read: impl FnMut(&str) -> Result<Vec<u8>, String>,
+    mut read: impl FnMut(&str) -> Result<Value, String>,
 ) -> Result<BTreeMap<String, Value>, String> {
     let mut docs = BTreeMap::new();
     for path in paths {
@@ -55,8 +56,7 @@ fn documents(
         }
         let doc = match value {
             Some(value) => value.clone(),
-            None => chrono_harness::decode(&read(path)?)
-                .map_err(|e| format!("E_SEMANTIC_INPUT: {path}: {e}"))?,
+            None => read(path)?,
         };
         docs.insert(path.clone(), doc);
     }
@@ -65,46 +65,23 @@ fn documents(
 
 pub(crate) fn for_endpoints(
     root: &Path,
-    commits: [&str; 2],
     endpoints: [&Endpoint; 2],
     delta: &[Delta],
-    reader: &facts::Reader,
+    reader: &mut Reader,
     search_path: Option<&str>,
 ) -> Result<Result<Value, String>, String> {
     let [base, candidate] = endpoints;
-    let path = resolve_program(root, "chrono-judge-mixed", search_path)?;
-    let digest = file_identity(&path)?.0;
-    let policy = &candidate.config()["protocol"];
-    let mut spec = CommandSpec {
-        program: path
-            .to_str()
-            .ok_or("mixed executable path is not UTF-8")?
-            .into(),
-        args: vec![],
-        env: BTreeMap::new(),
-        timeout_seconds: policy["timeout_seconds"]
-            .as_u64()
-            .ok_or("invalid protocol timeout")?,
-        output_limit_bytes: policy["stdout_limit_bytes"]
-            .as_u64()
-            .and_then(|n| usize::try_from(n).ok())
-            .ok_or("invalid protocol output bound")?,
-    };
-    let mut invoke = |operation: &str, request: Value| -> Result<Value, String> {
-        spec.args = vec![operation.into()];
+    let program = Program::resolve(root, "chrono-judge-mixed", search_path)?;
+    let invoke = |operation: &str, request: Value| -> Result<Value, String> {
         let input = serde_json::to_vec(&request).map_err(|e| e.to_string())?;
-        let result = run_process_observed(root, &spec, &input, &digest)?;
-        if let Some(failure) = result.failure {
-            return Err(failure);
-        }
-        if result.exit_code != 0 {
-            return Err(if result.stderr.trim_end().is_empty() {
-                format!("{operation} exited {}", result.exit_code)
-            } else {
-                result.stderr.trim_end().into()
-            });
-        }
-        chrono_harness::decode(&result.stdout_bytes)
+        let output = program.run(
+            root,
+            operation,
+            &BTreeMap::new(),
+            &candidate.config()["protocol"],
+            &input,
+        )?;
+        crate::strict_json::parse(&output)
     };
     let plan = json!({
         "base": base.config()["semantic_fields"],
@@ -130,10 +107,10 @@ pub(crate) fn for_endpoints(
         .map(|d| d.path.as_str())
         .collect();
     let before = documents(base, &selected.base, &old_present, |p| {
-        reader.blob(root, commits[0], p)
+        reader.document("base", p)
     })?;
     let after = documents(candidate, &selected.candidate, &new_present, |p| {
-        reader.blob(root, commits[1], p)
+        reader.document("candidate", p)
     })?;
     let paths = delta.iter().map(|d| d.path.as_str()).collect();
     Ok(invoke(

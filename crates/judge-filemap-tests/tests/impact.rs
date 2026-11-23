@@ -1246,6 +1246,7 @@ fn endpoint_tests_uses_fixed_trees_and_returns_blocking_findings_to_the_caller()
             "E_PROTOCOL: registration impact query identity",
         ),
         ("incomplete", "missing field `nodes`"),
+        ("duplicate", "duplicate JSON member error"),
         ("error", "registry rejected"),
     ] {
         fs::write(root.join("registration-reply"), mode).unwrap();
