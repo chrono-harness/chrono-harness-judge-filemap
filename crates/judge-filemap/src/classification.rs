@@ -1,8 +1,8 @@
 //! Read only named semantic documents for the installed mixed-change classifier.
+use crate::registration::Endpoint;
 use chrono_harness::{
     CommandSpec, facts, file_identity, resolve_program, run_process_observed, wire::Delta,
 };
-use chrono_judge_registration::Registrations;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
@@ -17,7 +17,7 @@ struct Paths {
     candidate: Vec<String>,
 }
 
-fn endpoint(r: &Registrations, delta: &BTreeSet<&str>) -> Value {
+fn endpoint(r: &Endpoint, delta: &BTreeSet<&str>) -> Value {
     let mut surfaces = BTreeMap::new();
     for file in r.filemap()["files"].as_array().unwrap() {
         let path = file["path"].as_str().unwrap();
@@ -31,7 +31,7 @@ fn endpoint(r: &Registrations, delta: &BTreeSet<&str>) -> Value {
 // Registration resolves selectors and historical conversions before classification.
 // External documents must be read with this invocation's Git reader.
 fn documents(
-    registration: &Registrations,
+    registration: &Endpoint,
     paths: &[String],
     present: &BTreeSet<&str>,
     mut read: impl FnMut(&str) -> Result<Vec<u8>, String>,
@@ -66,7 +66,7 @@ fn documents(
 pub(crate) fn for_endpoints(
     root: &Path,
     commits: [&str; 2],
-    endpoints: [&Registrations; 2],
+    endpoints: [&Endpoint; 2],
     delta: &[Delta],
     reader: &facts::Reader,
     search_path: Option<&str>,

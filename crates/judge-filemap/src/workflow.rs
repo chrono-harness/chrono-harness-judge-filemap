@@ -1,16 +1,16 @@
 //! Lower explicit workflow test requirements to typed edges before execution.
+use crate::registration::Endpoint;
 use crate::{
     graph::{Edge, EdgeKind},
     records::Record,
 };
 use chrono_harness::wire::Delta;
-use chrono_judge_registration::Registrations;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub fn select(
-    a: &Registrations,
-    b: &Registrations,
+    a: &Endpoint,
+    b: &Endpoint,
     delta: &[Delta],
     records: [&BTreeMap<String, Record>; 2],
     changes: Value,

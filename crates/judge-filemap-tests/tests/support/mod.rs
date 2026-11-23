@@ -1,6 +1,45 @@
 use chrono_harness::facts;
 use chrono_harness::wire::Delta;
-pub use chrono_registration_fixture::*;
+use chrono_judge_filemap::registration::Views;
+use serde_json::{Value, json};
+use std::sync::LazyLock;
+
+pub const FM: &str = ".chrono-harness/FILEMAP.json";
+pub const CONFIG: &str = ".chrono-harness/config.json";
+pub const PROJECTS: &str = ".chrono-harness/projects.json";
+pub const JUDGES: &str = ".chrono-harness/judges.json";
+
+pub fn edge(from: &str, kind: &str, to: &str) -> Value {
+    json!({"from":from,"kind":kind,"to":to})
+}
+
+pub fn standard() -> Value {
+    serde_json::from_str(include_str!("../fixtures/registration-standard.json")).unwrap()
+}
+
+pub fn views(base: &str, candidate: &str) -> Views {
+    #[derive(serde::Deserialize)]
+    struct Variant {
+        from: String,
+        patch: json_patch::Patch,
+    }
+    static VARIANTS: LazyLock<std::collections::BTreeMap<String, Variant>> = LazyLock::new(|| {
+        serde_json::from_str(include_str!("../fixtures/registration-variants.json")).unwrap()
+    });
+    fn endpoint(name: &str) -> Value {
+        if name == "standard" {
+            return standard();
+        }
+        let variant = &VARIANTS[name];
+        let mut result = endpoint(&variant.from);
+        json_patch::patch(&mut result, &variant.patch).unwrap();
+        result
+    }
+    serde_json::from_value(
+        json!({"base":endpoint(base),"candidate":endpoint(candidate),"repaired":[]}),
+    )
+    .unwrap()
+}
 use std::{path::Path, process::Command};
 pub fn delta(path: &str) -> Delta {
     Delta {

@@ -1,0 +1,680 @@
+{
+  "active_test_aliases": {
+    "project:t": [
+      "test:t"
+    ]
+  },
+  "claim_conflicts": {},
+  "config": {
+    "artifacts": [
+      {
+        "kind": "executable",
+        "owner": "host",
+        "path": ".chrono-harness/bin/",
+        "tracked": false
+      },
+      {
+        "kind": "evidence",
+        "owner": "host",
+        "path": ".chrono-harness/state/",
+        "tracked": false
+      }
+    ],
+    "canonical_check": {
+      "argv": [
+        ".chrono-harness/bin/chrono-harness",
+        "check",
+        "--config",
+        ".chrono-harness/config.json",
+        "--base",
+        "{base}",
+        "--candidate",
+        "{candidate}",
+        "--context",
+        ".chrono-harness/state/context.json"
+      ],
+      "operation": "validate.delta"
+    },
+    "enforcement": "enabled",
+    "environment": {
+      "inherit": [
+        "PATH"
+      ],
+      "inputs": [],
+      "values": {}
+    },
+    "input_closure": {
+      "status": "declared-complete",
+      "unresolved": []
+    },
+    "protocol": {
+      "encoding": "UTF-8",
+      "id": "chrono-judge/v1",
+      "stdout_limit_bytes": 8388608,
+      "timeout_seconds": 30
+    },
+    "registries": {
+      "filemap": ".chrono-harness/FILEMAP.json",
+      "judges": ".chrono-harness/judges.json",
+      "projects": ".chrono-harness/projects.json",
+      "workflow": ".chrono-harness/workflow.json"
+    },
+    "runner": {
+      "path": ".chrono-harness/bin/chrono-harness",
+      "sha256": null,
+      "version": "0.1.0"
+    },
+    "schema_version": 1,
+    "semantic_fields": [],
+    "status": "active",
+    "tools": [
+      {
+        "expected_version": "fixture-declared",
+        "id": "sh",
+        "program": "/bin/sh",
+        "resolution": "PATH-once",
+        "version_argv": [
+          "--version"
+        ]
+      }
+    ]
+  },
+  "effective_config_path": ".chrono-harness/config.json",
+  "filemap": {
+    "cost_models": {
+      "unknown": {
+        "basis": "unmeasured fixture",
+        "cpu_ms": null,
+        "io_bytes": null,
+        "peak_rss_bytes": null,
+        "wall_ms": null
+      }
+    },
+    "files": [
+      {
+        "cost": "unknown",
+        "edges": [
+          {
+            "kind": "compile",
+            "to": "project:p"
+          }
+        ],
+        "owner": "host",
+        "path": "src.bin",
+        "surface": "product"
+      },
+      {
+        "cost": "unknown",
+        "edges": [],
+        "owner": "host",
+        "path": "doc.txt",
+        "surface": "product"
+      },
+      {
+        "cost": "unknown",
+        "edges": [],
+        "owner": "host",
+        "path": ".chrono-harness/config.json",
+        "surface": "product"
+      },
+      {
+        "cost": "unknown",
+        "edges": [],
+        "owner": "host",
+        "path": ".chrono-harness/FILEMAP.json",
+        "surface": "product"
+      },
+      {
+        "cost": "unknown",
+        "edges": [],
+        "owner": "host",
+        "path": ".chrono-harness/projects.json",
+        "surface": "product"
+      },
+      {
+        "cost": "unknown",
+        "edges": [],
+        "owner": "host",
+        "path": ".chrono-harness/judges.json",
+        "surface": "product"
+      },
+      {
+        "cost": "unknown",
+        "edges": [],
+        "owner": "host",
+        "path": ".chrono-harness/workflow.json",
+        "surface": "product"
+      },
+      {
+        "cost": "unknown",
+        "edges": [],
+        "owner": "host",
+        "path": ".gitignore",
+        "surface": "product"
+      },
+      {
+        "cost": "unknown",
+        "edges": [],
+        "owner": "host",
+        "path": "p/Cargo.toml",
+        "surface": "product"
+      },
+      {
+        "cost": "unknown",
+        "edges": [],
+        "owner": "host",
+        "path": "p/Cargo.lock",
+        "surface": "product"
+      },
+      {
+        "cost": "unknown",
+        "edges": [],
+        "owner": "host",
+        "path": "t/Cargo.toml",
+        "surface": "product"
+      },
+      {
+        "cost": "unknown",
+        "edges": [],
+        "owner": "host",
+        "path": "t/Cargo.lock",
+        "surface": "product"
+      }
+    ],
+    "project_edges": [
+      {
+        "from": "project:p",
+        "kind": "test-execution",
+        "to": "test:t"
+      }
+    ],
+    "schema_version": 1,
+    "status": "active",
+    "test_costs": [
+      {
+        "cost": "unknown",
+        "test": "t"
+      }
+    ]
+  },
+  "judges": {
+    "judges": [
+      {
+        "after": [],
+        "argv": [
+          "--protocol",
+          "chrono-judge/v1"
+        ],
+        "executable": ".chrono-harness/bin/chrono-judge-registration",
+        "id": "registration",
+        "modes": [
+          "evaluate"
+        ],
+        "selector": "every-delta",
+        "sha256": null,
+        "version": "0.1.0"
+      },
+      {
+        "after": [
+          "registration"
+        ],
+        "argv": [
+          "--protocol",
+          "chrono-judge/v1"
+        ],
+        "executable": ".chrono-harness/bin/chrono-judge-filemap",
+        "id": "filemap",
+        "modes": [
+          "evaluate"
+        ],
+        "selector": "every-delta",
+        "sha256": null,
+        "version": "0.1.0"
+      }
+    ],
+    "migration_validator": "registration",
+    "schema_version": 1,
+    "status": "active"
+  },
+  "nodes": {
+    "environment:PATH": {
+      "definitions": [
+        {
+          "identity": "environment:PATH",
+          "value": {
+            "inherit": [
+              "PATH"
+            ],
+            "inputs": [],
+            "values": {}
+          }
+        }
+      ],
+      "kind": "environment"
+    },
+    "file:.chrono-harness/FILEMAP.json": {
+      "definitions": [
+        {
+          "identity": "file:.chrono-harness/FILEMAP.json",
+          "value": {
+            "cost": "unknown",
+            "edges": [],
+            "owner": "host",
+            "path": ".chrono-harness/FILEMAP.json",
+            "surface": "product"
+          }
+        }
+      ],
+      "kind": "file"
+    },
+    "file:.chrono-harness/config.json": {
+      "definitions": [
+        {
+          "identity": "file:.chrono-harness/config.json",
+          "value": {
+            "cost": "unknown",
+            "edges": [],
+            "owner": "host",
+            "path": ".chrono-harness/config.json",
+            "surface": "product"
+          }
+        }
+      ],
+      "kind": "file"
+    },
+    "file:.chrono-harness/judges.json": {
+      "definitions": [
+        {
+          "identity": "file:.chrono-harness/judges.json",
+          "value": {
+            "cost": "unknown",
+            "edges": [],
+            "owner": "host",
+            "path": ".chrono-harness/judges.json",
+            "surface": "product"
+          }
+        }
+      ],
+      "kind": "file"
+    },
+    "file:.chrono-harness/projects.json": {
+      "definitions": [
+        {
+          "identity": "file:.chrono-harness/projects.json",
+          "value": {
+            "cost": "unknown",
+            "edges": [],
+            "owner": "host",
+            "path": ".chrono-harness/projects.json",
+            "surface": "product"
+          }
+        }
+      ],
+      "kind": "file"
+    },
+    "file:.chrono-harness/workflow.json": {
+      "definitions": [
+        {
+          "identity": "file:.chrono-harness/workflow.json",
+          "value": {
+            "cost": "unknown",
+            "edges": [],
+            "owner": "host",
+            "path": ".chrono-harness/workflow.json",
+            "surface": "product"
+          }
+        }
+      ],
+      "kind": "file"
+    },
+    "file:.gitignore": {
+      "definitions": [
+        {
+          "identity": "file:.gitignore",
+          "value": {
+            "cost": "unknown",
+            "edges": [],
+            "owner": "host",
+            "path": ".gitignore",
+            "surface": "product"
+          }
+        }
+      ],
+      "kind": "file"
+    },
+    "file:doc.txt": {
+      "definitions": [
+        {
+          "identity": "file:doc.txt",
+          "value": {
+            "cost": "unknown",
+            "edges": [],
+            "owner": "host",
+            "path": "doc.txt",
+            "surface": "product"
+          }
+        }
+      ],
+      "kind": "file"
+    },
+    "file:p/Cargo.lock": {
+      "definitions": [
+        {
+          "identity": "file:p/Cargo.lock",
+          "value": {
+            "cost": "unknown",
+            "edges": [],
+            "owner": "host",
+            "path": "p/Cargo.lock",
+            "surface": "product"
+          }
+        }
+      ],
+      "kind": "file"
+    },
+    "file:p/Cargo.toml": {
+      "definitions": [
+        {
+          "identity": "file:p/Cargo.toml",
+          "value": {
+            "cost": "unknown",
+            "edges": [],
+            "owner": "host",
+            "path": "p/Cargo.toml",
+            "surface": "product"
+          }
+        }
+      ],
+      "kind": "file"
+    },
+    "file:src.bin": {
+      "definitions": [
+        {
+          "identity": "file:src.bin",
+          "value": {
+            "cost": "unknown",
+            "edges": [
+              {
+                "kind": "compile",
+                "to": "project:p"
+              }
+            ],
+            "owner": "host",
+            "path": "src.bin",
+            "surface": "product"
+          }
+        }
+      ],
+      "kind": "file"
+    },
+    "file:t/Cargo.lock": {
+      "definitions": [
+        {
+          "identity": "file:t/Cargo.lock",
+          "value": {
+            "cost": "unknown",
+            "edges": [],
+            "owner": "host",
+            "path": "t/Cargo.lock",
+            "surface": "product"
+          }
+        }
+      ],
+      "kind": "file"
+    },
+    "file:t/Cargo.toml": {
+      "definitions": [
+        {
+          "identity": "file:t/Cargo.toml",
+          "value": {
+            "cost": "unknown",
+            "edges": [],
+            "owner": "host",
+            "path": "t/Cargo.toml",
+            "surface": "product"
+          }
+        }
+      ],
+      "kind": "file"
+    },
+    "judge:filemap": {
+      "definitions": [
+        {
+          "identity": "judge:filemap",
+          "value": {
+            "after": [
+              "registration"
+            ],
+            "argv": [
+              "--protocol",
+              "chrono-judge/v1"
+            ],
+            "executable": ".chrono-harness/bin/chrono-judge-filemap",
+            "id": "filemap",
+            "modes": [
+              "evaluate"
+            ],
+            "selector": "every-delta",
+            "sha256": null,
+            "version": "0.1.0"
+          }
+        }
+      ],
+      "kind": "judge"
+    },
+    "judge:registration": {
+      "definitions": [
+        {
+          "identity": "judge:registration",
+          "value": {
+            "after": [],
+            "argv": [
+              "--protocol",
+              "chrono-judge/v1"
+            ],
+            "executable": ".chrono-harness/bin/chrono-judge-registration",
+            "id": "registration",
+            "modes": [
+              "evaluate"
+            ],
+            "selector": "every-delta",
+            "sha256": null,
+            "version": "0.1.0"
+          }
+        }
+      ],
+      "kind": "judge"
+    },
+    "project:p": {
+      "definitions": [
+        {
+          "identity": "project:p",
+          "value": {
+            "actions": {
+              "execute": {
+                "argv": [
+                  "-c",
+                  "exit 0"
+                ],
+                "operation": "execute.p",
+                "tool": "sh"
+              }
+            },
+            "id": "p",
+            "kind": "production",
+            "lockfile": "p/Cargo.lock",
+            "manifest": "p/Cargo.toml",
+            "root": "p",
+            "test_project": "t"
+          }
+        }
+      ],
+      "kind": "project"
+    },
+    "project:t": {
+      "definitions": [
+        {
+          "identity": "project:t",
+          "value": {
+            "actions": {
+              "execute": {
+                "argv": [
+                  "-c",
+                  "exit 0"
+                ],
+                "operation": "execute.t",
+                "tool": "sh"
+              }
+            },
+            "id": "t",
+            "kind": "test",
+            "lockfile": "t/Cargo.lock",
+            "manifest": "t/Cargo.toml",
+            "root": "t",
+            "tests_for": "p"
+          }
+        }
+      ],
+      "kind": "project"
+    },
+    "test:t": {
+      "definitions": [
+        {
+          "identity": "project:t",
+          "value": {
+            "actions": {
+              "execute": {
+                "argv": [
+                  "-c",
+                  "exit 0"
+                ],
+                "operation": "execute.t",
+                "tool": "sh"
+              }
+            },
+            "id": "t",
+            "kind": "test",
+            "lockfile": "t/Cargo.lock",
+            "manifest": "t/Cargo.toml",
+            "root": "t",
+            "tests_for": "p"
+          }
+        }
+      ],
+      "kind": "test"
+    },
+    "tool:sh": {
+      "definitions": [
+        {
+          "identity": "tool:sh",
+          "value": {
+            "expected_version": "fixture-declared",
+            "id": "sh",
+            "program": "/bin/sh",
+            "resolution": "PATH-once",
+            "version_argv": [
+              "--version"
+            ]
+          }
+        }
+      ],
+      "kind": "tool"
+    }
+  },
+  "original_schemas": {
+    "config": [
+      ".chrono-harness/config.json",
+      1
+    ],
+    "filemap": [
+      ".chrono-harness/FILEMAP.json",
+      1
+    ],
+    "judges": [
+      ".chrono-harness/judges.json",
+      1
+    ],
+    "projects": [
+      ".chrono-harness/projects.json",
+      1
+    ],
+    "workflow": [
+      ".chrono-harness/workflow.json",
+      1
+    ]
+  },
+  "projects": {
+    "owners": [
+      "host",
+      "p",
+      "t"
+    ],
+    "projects": [
+      {
+        "actions": {
+          "execute": {
+            "argv": [
+              "-c",
+              "exit 0"
+            ],
+            "operation": "execute.p",
+            "tool": "sh"
+          }
+        },
+        "id": "p",
+        "kind": "production",
+        "lockfile": "p/Cargo.lock",
+        "manifest": "p/Cargo.toml",
+        "root": "p",
+        "test_project": "t"
+      },
+      {
+        "actions": {
+          "execute": {
+            "argv": [
+              "-c",
+              "exit 0"
+            ],
+            "operation": "execute.t",
+            "tool": "sh"
+          }
+        },
+        "id": "t",
+        "kind": "test",
+        "lockfile": "t/Cargo.lock",
+        "manifest": "t/Cargo.toml",
+        "root": "t",
+        "tests_for": "p"
+      }
+    ],
+    "schema_version": 1,
+    "scripts": [],
+    "status": "active"
+  },
+  "workflow": {
+    "feature_prefix": "feature/",
+    "integration": {
+      "bind": [],
+      "evidence": ".chrono-harness/state/integration.json",
+      "tests": []
+    },
+    "integration_prefix": "integration/",
+    "migrations": [],
+    "mixed_change": {
+      "code": "W_MIXED",
+      "level": "warning",
+      "requires_acknowledgement": false
+    },
+    "retirements": [],
+    "schema_version": 1,
+    "semantic_changes_require_integration": true,
+    "stability": [],
+    "staleness": {
+      "combine": "any-exceeded",
+      "max_age_hours": 24,
+      "max_behind_commits": 3
+    },
+    "status": "active",
+    "target_branch": "dev"
+  }
+}
