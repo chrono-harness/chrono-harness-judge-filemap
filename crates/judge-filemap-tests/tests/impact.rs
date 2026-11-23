@@ -1,6 +1,6 @@
 #[path = "support/classification.rs"]
 mod mixed_fixture;
-fn classification(delta: &[chrono_harness::wire::Delta]) -> Result<serde_json::Value, String> {
+fn classification(delta: &[chrono_judge_filemap::Delta]) -> Result<serde_json::Value, String> {
     mixed_fixture::reply(
         &delta
             .iter()
@@ -9,7 +9,7 @@ fn classification(delta: &[chrono_harness::wire::Delta]) -> Result<serde_json::V
     )
 }
 mod support;
-use chrono_harness::{facts, wire::Finding};
+use chrono_judge_filemap::Finding;
 use chrono_judge_filemap::{
     Impact,
     graph::{self, Edge, EdgeKind, Origin, Seed},
@@ -21,7 +21,7 @@ use std::{
     fs,
 };
 use support::*;
-fn run(base: &str, candidate: &str, d: &[chrono_harness::wire::Delta]) -> (Impact, Vec<Finding>) {
+fn run(base: &str, candidate: &str, d: &[chrono_judge_filemap::Delta]) -> (Impact, Vec<Finding>) {
     produce(&views(base, candidate), d, classification(d))
 }
 
@@ -107,14 +107,14 @@ fn typed_content_mode_binary_add_modify_delete_and_rename() {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
-    git(root, &["init", "-q"]);
+    init_endpoints(root);
     fs::write(root.join("src.bin"), [0, 255, 1]).unwrap();
     let b = commit(root);
     for (bytes, mode) in [(vec![0, 255, 2], 0o644), (vec![0, 255, 1], 0o755)] {
         fs::write(root.join("src.bin"), bytes).unwrap();
         fs::set_permissions(root.join("src.bin"), fs::Permissions::from_mode(mode)).unwrap();
         let c = commit(root);
-        let d = git_delta(root, &b, &c);
+        let d = observed_delta(root, &b, &c).unwrap();
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].kind, "M");
         let (i, f) = run("standard", "standard", &d);
@@ -123,7 +123,7 @@ fn typed_content_mode_binary_add_modify_delete_and_rename() {
     }
     fs::rename(root.join("src.bin"), root.join("new.bin")).unwrap();
     let c = commit(root);
-    let d = git_delta(root, &b, &c);
+    let d = observed_delta(root, &b, &c).unwrap();
     assert_eq!(
         d.iter().map(|d| (&*d.path, &*d.kind)).collect::<Vec<_>>(),
         [("new.bin", "A"), ("src.bin", "D")]
@@ -138,7 +138,7 @@ fn typed_content_mode_binary_add_modify_delete_and_rename() {
 fn nonancestor_and_multicommit_facts_use_complete_endpoints() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
-    git(root, &["init", "-q"]);
+    init_endpoints(root);
     fs::write(root.join("src.bin"), "one").unwrap();
     let first = commit(root);
     fs::write(root.join("doc.txt"), "docs").unwrap();
@@ -149,12 +149,12 @@ fn nonancestor_and_multicommit_facts_use_complete_endpoints() {
     fs::write(root.join("doc.txt"), "other docs").unwrap();
     let right = commit(root);
     for base in [&first, &left] {
-        let d = git_delta(root, base, &right);
+        let d = observed_delta(root, base, &right).unwrap();
         assert_eq!(d.len(), 2);
         let (i, _) = run("standard", "standard", &d);
         assert_eq!(tests(&i), ["test:t"]);
     }
-    assert!(facts::tree(root, &"a".repeat(40)).is_err());
+    assert!(observed_delta(root, &first, &"a".repeat(40)).is_err());
 }
 #[test]
 fn no_delta_and_disconnected_docs_only_select_every_delta_judges() {
@@ -1215,30 +1215,9 @@ fn a_language_change_selects_the_registered_test_for_projects_and_scripts() {
 
 #[test]
 fn endpoint_tests_uses_fixed_trees_and_returns_blocking_findings_to_the_caller() {
-    let bin = fixture_bin();
-    for (mock, command) in [
-        (
-            env!("CARGO_BIN_EXE_chrono-test-mixed"),
-            "chrono-judge-mixed",
-        ),
-        (
-            env!("CARGO_BIN_EXE_chrono-test-registration"),
-            "chrono-judge-registration",
-        ),
-    ] {
-        std::os::unix::fs::symlink(mock, bin.join(command)).unwrap();
-    }
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
-    git(root, &["init", "-q"]);
-    let endpoint = standard();
-    for role in ["config", "filemap", "projects", "judges", "workflow"] {
-        let path = endpoint["original_schemas"][role][0].as_str().unwrap();
-        let value = &endpoint[role];
-        let dest = root.join(path);
-        fs::create_dir_all(dest.parent().unwrap()).unwrap();
-        fs::write(dest, serde_json::to_vec(&value).unwrap()).unwrap();
-    }
+    init_endpoints(root);
     fs::write(root.join("src.bin"), b"before").unwrap();
     let base = commit(root);
     fs::write(root.join("src.bin"), b"after").unwrap();

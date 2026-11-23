@@ -99,12 +99,12 @@ dependencies = [
 name = "chrono-judge-filemap-tests"
 version = "0.1.0"
 dependencies = [
- "chrono-harness",
  "chrono-judge-filemap",
  "json-patch",
  "serde",
  "serde_json",
  "tempfile",
+ "verus_builtin_macros",
 ]
 
 [[package]]

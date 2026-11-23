@@ -1,7 +1,7 @@
-use chrono_harness::facts;
-use chrono_harness::wire::Delta;
+use chrono_judge_filemap::Delta;
 use chrono_judge_filemap::registration::Views;
 use serde_json::{Value, json};
+use std::fs;
 use std::sync::LazyLock;
 
 pub const FM: &str = ".chrono-harness/FILEMAP.json";
@@ -77,7 +77,6 @@ pub fn git(root: &Path, args: &[&str]) -> String {
         .args(args)
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_CONFIG_GLOBAL", "/dev/null");
-    chrono_harness::process_fds::forward_command(&mut command, &[]).unwrap();
     let o = command.output().unwrap();
     assert!(
         o.status.success(),
@@ -104,9 +103,42 @@ pub fn commit(root: &Path) -> String {
     );
     git(root, &["rev-parse", "HEAD"])
 }
-pub fn git_delta(root: &Path, b: &str, c: &str) -> Vec<Delta> {
-    facts::delta(
-        &facts::tree(root, b).unwrap(),
-        &facts::tree(root, c).unwrap(),
-    )
+pub fn init_endpoints(root: &Path) {
+    static INSTALL: std::sync::Once = std::sync::Once::new();
+    INSTALL.call_once(|| {
+        let bin = fixture_bin();
+        for (mock, command) in [
+            (
+                env!("CARGO_BIN_EXE_chrono-test-mixed"),
+                "chrono-judge-mixed",
+            ),
+            (
+                env!("CARGO_BIN_EXE_chrono-test-registration"),
+                "chrono-judge-registration",
+            ),
+        ] {
+            std::os::unix::fs::symlink(mock, bin.join(command)).unwrap();
+        }
+    });
+    git(root, &["init", "-q"]);
+    let endpoint = standard();
+    for role in ["config", "filemap", "projects", "judges", "workflow"] {
+        let path = endpoint["original_schemas"][role][0].as_str().unwrap();
+        let value = &endpoint[role];
+        let dest = root.join(path);
+        fs::create_dir_all(dest.parent().unwrap()).unwrap();
+        fs::write(dest, serde_json::to_vec(&value).unwrap()).unwrap();
+    }
+}
+
+// Read the actual change set FILEMAP sent to its classifier for this pair of commits.
+pub fn observed_delta(root: &Path, base: &str, candidate: &str) -> Result<Vec<Delta>, String> {
+    let query =
+        serde_json::to_vec(&json!({"config":CONFIG,"base":base,"candidate":candidate})).unwrap();
+    let capture = root.join(".git/classifier-delta.json");
+    if capture.exists() {
+        fs::remove_file(&capture).unwrap();
+    }
+    chrono_judge_filemap::endpoint_tests(root, query.as_slice())?;
+    Ok(serde_json::from_slice(&fs::read(capture).unwrap()).unwrap())
 }

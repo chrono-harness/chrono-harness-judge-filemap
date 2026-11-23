@@ -18,6 +18,11 @@ fn run() -> Result<Value, String> {
             assert!(wire["candidate"]["workflow"].is_string());
             assert_eq!(wire["before"], json!({}));
             assert_eq!(wire["after"], json!({}));
+            std::fs::write(
+                ".git/classifier-delta.json",
+                serde_json::to_vec(delta).unwrap(),
+            )
+            .unwrap();
             classification::reply(&paths)
         }
         _ => panic!("unexpected mixed command"),

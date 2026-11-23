@@ -5,9 +5,11 @@ mod records;
 #[allow(unexpected_cfgs)]
 pub mod verified_graph;
 mod workflow;
+/// Public change and finding types in FILEMAP impact evaluations.
+pub use chrono_harness::wire::{Delta, Finding};
 use chrono_harness::{
     facts,
-    wire::{Delta, Finding, Request, Response, Status, append_finding},
+    wire::{Request, Response, Status, append_finding},
 };
 pub mod registration;
 use graph::{Closure, Edge, EdgeKind, Origin, Seed, UnionEdge};
