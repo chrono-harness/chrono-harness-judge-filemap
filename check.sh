@@ -9,7 +9,12 @@ cargo build --locked --manifest-path crates/judge-filemap/Cargo.toml
 cargo fmt --check --manifest-path crates/judge-filemap-tests/Cargo.toml
 CHRONO_TEST_GIT=$(command -v chrono-test-git) || { echo "chrono-test-git is required by filemap tests" >&2; exit 1; }
 export CHRONO_TEST_GIT
-cargo test --locked --manifest-path crates/judge-filemap-tests/Cargo.toml
+# Cargo invokes the test executables with the fixture first on PATH.
+# Build scripts and the compiler keep their normal environment.
+mkdir "$scratch/test-bin"
+ln -s "$CHRONO_TEST_GIT" "$scratch/test-bin/git"
+test_runner=$(jq -cn --arg path "PATH=$scratch/test-bin:$PATH" '["/usr/bin/env", $path]')
+cargo test --locked --manifest-path crates/judge-filemap-tests/Cargo.toml --config "target.'cfg(all())'.runner=$test_runner"
 prove() {
   local label=$1 root=$2
   local output="$scratch/$label.rlib"

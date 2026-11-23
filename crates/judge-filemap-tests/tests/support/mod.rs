@@ -51,8 +51,26 @@ pub fn delta(path: &str) -> Delta {
         new_mode: Some("100644".into()),
     }
 }
+pub fn fixture_bin() -> std::path::PathBuf {
+    let search_path = std::env::var_os("PATH").expect("test process PATH");
+    let fixture_dir = std::env::split_paths(&search_path)
+        .next()
+        .expect("fixture directory");
+    let selected = fixture_dir
+        .join("git")
+        .canonicalize()
+        .expect("run tests with ./check.sh");
+    assert_eq!(
+        selected,
+        std::path::Path::new(env!("CHRONO_TEST_GIT"))
+            .canonicalize()
+            .unwrap(),
+        "test Git fixture must be first on PATH"
+    );
+    fixture_dir
+}
 pub fn git(root: &Path, args: &[&str]) -> String {
-    let mut command = Command::new(env!("CHRONO_TEST_GIT"));
+    let mut command = Command::new(fixture_bin().join("git"));
     command
         .arg("-C")
         .arg(root)

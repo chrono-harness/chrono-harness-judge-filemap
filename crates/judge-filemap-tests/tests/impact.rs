@@ -8,8 +8,6 @@ fn classification(delta: &[chrono_harness::wire::Delta]) -> Result<serde_json::V
             .collect::<Vec<_>>(),
     )
 }
-#[path = "support/isolated_git.rs"]
-mod chrono_git_boundary;
 mod support;
 use chrono_harness::{facts, wire::Finding};
 use chrono_judge_filemap::{
@@ -106,9 +104,6 @@ fn witnesses(i: &Impact, allowed: &BTreeSet<Edge>) {
 }
 #[test]
 fn typed_content_mode_binary_add_modify_delete_and_rename() {
-    if !chrono_git_boundary::isolated_git() {
-        return;
-    }
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
@@ -141,9 +136,6 @@ fn typed_content_mode_binary_add_modify_delete_and_rename() {
 }
 #[test]
 fn nonancestor_and_multicommit_facts_use_complete_endpoints() {
-    if !chrono_git_boundary::isolated_git() {
-        return;
-    }
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     git(root, &["init", "-q"]);
@@ -533,9 +525,6 @@ fn complete_seed_order_matches_all_four_fields_and_preserves_btree_members() {
 
 #[test]
 fn seed_json_adapters_preserve_each_field_and_reject_missing_or_nonstring_fields() {
-    if !chrono_git_boundary::isolated_git() {
-        return;
-    }
     let seed = Seed {
         id: "id\0".into(),
         node: "根".into(),
@@ -858,9 +847,6 @@ fn predecessor_state_roundtrips_the_actual_sparse_json_and_cloned_witnesses() {
 
 #[test]
 fn predecessor_witness_rejects_serialized_cycles_missing_rows_and_wrong_targets() {
-    if !chrono_git_boundary::isolated_git() {
-        return;
-    }
     for parents in [
         json!({"a":{"from":"a", "kind":"compile", "to":"a"}}),
         json!({"a":{"from":"b", "kind":"compile", "to":"a"},
@@ -1229,26 +1215,22 @@ fn a_language_change_selects_the_registered_test_for_projects_and_scripts() {
 
 #[test]
 fn endpoint_tests_uses_fixed_trees_and_returns_blocking_findings_to_the_caller() {
-    if !chrono_git_boundary::isolated_git() {
-        return;
+    let bin = fixture_bin();
+    for (mock, command) in [
+        (
+            env!("CARGO_BIN_EXE_chrono-test-mixed"),
+            "chrono-judge-mixed",
+        ),
+        (
+            env!("CARGO_BIN_EXE_chrono-test-registration"),
+            "chrono-judge-registration",
+        ),
+    ] {
+        std::os::unix::fs::symlink(mock, bin.join(command)).unwrap();
     }
-    // isolated_git owns this directory and prepends it to the child process PATH.
-    let custody = std::path::PathBuf::from(std::env::var_os("CHRONO_TEST_CUSTODY_ROOT").unwrap());
-    let tools = custody.parent().unwrap();
-    assert!(tools.join("git").is_file());
-    std::fs::hard_link(
-        env!("CARGO_BIN_EXE_chrono-test-mixed"),
-        tools.join("chrono-judge-mixed"),
-    )
-    .unwrap();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     git(root, &["init", "-q"]);
-    std::fs::hard_link(
-        env!("CARGO_BIN_EXE_chrono-test-registration"),
-        tools.join("chrono-judge-registration"),
-    )
-    .unwrap();
     let endpoint = standard();
     for role in ["config", "filemap", "projects", "judges", "workflow"] {
         let path = endpoint["original_schemas"][role][0].as_str().unwrap();
