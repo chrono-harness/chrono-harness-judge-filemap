@@ -19,3 +19,5 @@
 FILEMAP 的端点查询、调度和收集从 PATH 调用固定发行的 `chrono-judge-registration impact-views-v1`。FILEMAP 在两个提交上取得登记原文，登记工具按公开协议返回节点定义、测试归属和解释后的登记。FILEMAP 据此计算闭包和测试选择。只查询 `impact-summary` 或 `closure-v1` 时可单独使用 FILEMAP。
 
 测试从 `tests/fixtures/registration-standard.json` 读取公开响应的端点样例，`registration-variants.json` 按命名场景用 JSON Patch 保存相对改动。两份文件位于 `crates/judge-filemap-tests/` 下，供影响分析与命令边界测试离线使用。
+
+完整调度重新打开 Git 读取器时，FILEMAP 将已观察的继承环境传给 registration。未设置的变量和配置排除的凭据保持缺席。配置中的字面值由读取器从各端点的配置解析。

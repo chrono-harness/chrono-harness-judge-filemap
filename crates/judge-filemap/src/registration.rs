@@ -1,4 +1,6 @@
 //! Read the interpreted declarations that the installed registration judge owns.
+#[path = "registration_environment.rs"]
+mod registration_environment;
 use crate::NodeDefinition;
 use chrono_harness::{CommandSpec, file_identity, resolve_program, run_process_observed};
 use serde::Deserialize;
@@ -109,16 +111,21 @@ pub(crate) fn read(
     let query =
         serde_json::to_vec(&serde_json::json!({"operation":operation,"originals":originals}))
             .map_err(|e| e.to_string())?;
-    let position = reader.observation()["processes"]
-        .as_array()
-        .map_or(0, Vec::len);
+    let (position, env) = {
+        let facts = reader.observation();
+        let position = facts["processes"].as_array().map_or(0, Vec::len);
+        let inherited =
+            (scheduling && reader.is_bound()).then(|| &facts["environment"]["inherited"]);
+        let path = search_path
+            .map(str::to_owned)
+            .or_else(|| std::env::var("PATH").ok());
+        (
+            position,
+            registration_environment::child_environment(path, inherited)?,
+        )
+    };
     let path = resolve_program(root, "chrono-judge-registration", search_path)?;
     let digest = file_identity(&path)?.0;
-    let env = search_path
-        .map(str::to_owned)
-        .or_else(|| std::env::var("PATH").ok())
-        .map(|path| BTreeMap::from([("PATH".into(), path)]))
-        .unwrap_or_default();
     let command = CommandSpec {
         program: path
             .to_str()

@@ -1309,3 +1309,26 @@ fn closure_query_keeps_removed_edges_cycles_and_only_reachable_causes_for_replay
     request["candidate"][0]["kind"] = json!("unknown");
     assert!(query(&request).is_err());
 }
+
+#[path = "../../judge-filemap/src/registration_environment.rs"]
+mod registration_environment;
+
+#[test]
+fn registration_scheduling_gets_only_observed_inherited_values() {
+    use registration_environment::child_environment;
+    let inherited =
+        json!({"PATH": "/bound", "BUSINESS": "original", "UNSET": null, "CREDENTIAL": null});
+    let env = child_environment(Some("/lookup".into()), Some(&inherited)).unwrap();
+    assert_eq!(json!(env), json!({"PATH":"/bound", "BUSINESS":"original"}));
+    let absent = json!({"PATH":null});
+    assert!(
+        child_environment(Some("/lookup".into()), Some(&absent))
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        json!(child_environment(Some("/lookup".into()), None).unwrap()),
+        json!({"PATH":"/lookup"})
+    );
+    assert!(child_environment(None, Some(&json!({"BUSINESS":42}))).is_err());
+}
