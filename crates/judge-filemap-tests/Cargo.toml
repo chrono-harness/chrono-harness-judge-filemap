@@ -34,3 +34,9 @@ name = "chrono-test-registration"
 path = "tests/support/registration.rs"
 test = false
 bench = false
+
+[[bin]]
+name = "chrono-test-filemap-runner"
+path = "tests/support/runner.rs"
+test = false
+bench = false

@@ -3,15 +3,25 @@ mod classification;
 pub mod cost_inputs;
 pub mod graph;
 mod records;
+/// Public change and finding types in FILEMAP impact evaluations.
+mod request;
+mod runtime;
+mod strict_json;
 #[allow(unexpected_cfgs)]
 pub mod verified_graph;
 mod workflow;
-/// Public change and finding types in FILEMAP impact evaluations.
-pub use chrono_harness::wire::{Delta, Finding};
-use chrono_harness::{
-    facts,
-    wire::{Request, Response, Status, append_finding},
-};
+pub use request::Finding;
+use request::Request;
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Delta {
+    pub kind: String,
+    pub path: String,
+    pub old_blob: Option<String>,
+    pub new_blob: Option<String>,
+    pub old_mode: Option<String>,
+    pub new_mode: Option<String>,
+}
 pub mod registration;
 use graph::{Closure, Edge, EdgeKind, Origin, Seed, UnionEdge};
 pub use records::{Change, Record, RecordPair};
@@ -459,29 +469,25 @@ pub fn endpoint_tests(root: &std::path::Path, input: impl std::io::Read) -> Resu
         scheduling: bool,
     }
     let query: Query = serde_json::from_reader(input).map_err(|error| error.to_string())?;
-    facts::full_oid(&query.base)?;
-    facts::full_oid(&query.candidate)?;
-    let reader = facts::Reader::for_config(root, &query.config)?;
+    let mut reader = runtime::Reader::open(
+        root,
+        json!({"mode":"config","config":query.config,"base":query.base,"candidate":query.candidate}),
+    )?;
     let reply = registration::read(
         root,
-        &query.config,
-        &reader,
+        &mut reader,
         json!({"mode":"endpoints","base":query.base,"candidate":query.candidate,"config":query.config,"scheduling":query.scheduling}),
         [&query.base, &query.candidate],
         None,
         None,
     )?;
     let views = reply.views?;
-    let delta = facts::delta(
-        &reader.tree(root, &query.base)?,
-        &reader.tree(root, &query.candidate)?,
-    );
+    let delta = reader.delta()?;
     let changes = classification::for_endpoints(
         root,
-        [&query.base, &query.candidate],
         [&views.base, &views.candidate],
         &delta,
-        &reader,
+        &mut reader,
         None,
     )?;
     let (impact, findings) = produce(&views, &delta, changes);
@@ -491,11 +497,12 @@ pub fn endpoint_tests(root: &std::path::Path, input: impl std::io::Read) -> Resu
         result["reached"] = json!(impact.closure.reached.keys().collect::<Vec<_>>());
         result["changed_paths"] = json!(delta.iter().map(|item| &item.path).collect::<Vec<_>>());
         result["git_facts"] = registration::with_registration_facts(
-            reader.observation(),
+            reader.observation()?,
             reply.position,
             reply.git_facts,
         )?;
     }
+    reader.close()?;
     Ok(result)
 }
 
@@ -505,45 +512,36 @@ pub fn collection_tests(
     root: &std::path::Path,
     input: impl std::io::Read,
 ) -> Result<Value, String> {
-    #[derive(Deserialize, Serialize)]
-    #[serde(deny_unknown_fields)]
-    struct MigrationInputs {
-        units: Vec<String>,
-        originals: chrono_harness::units::FullManifest,
-    }
-    #[derive(Deserialize, Serialize)]
+    #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
     struct Query {
-        request: Request,
-        migration: Option<MigrationInputs>,
+        request: Value,
+        migration: Option<Value>,
     }
     let query: Query = serde_json::from_reader(input).map_err(|e| e.to_string())?;
-    let req = &query.request;
+    let req = &Request::new(query.request)?;
     if req.candidate.root != root
-        || !matches!(
-            req.scope,
-            Some(chrono_harness::units::Scope::Collect { .. })
-        )
+        || req.scope.as_ref().and_then(|s| s["kind"].as_str()) != Some("collect")
     {
         return Err("FILEMAP collection requires this checkout and a collection scope".into());
     }
-    let reader = facts::Reader::for_request(req)?;
+    let mut reader = runtime::Reader::open(root, json!({"mode":"request","request":req.raw}))?;
     let reply = registration::read(
         root,
-        &req.config_path,
-        &reader,
-        json!({"mode":"collection","request":req,"migration":query.migration}),
+        &mut reader,
+        json!({"mode":"collection","request":req.raw,"migration":query.migration}),
         [&req.base.commit, &req.candidate.commit],
         Some(&req.request_id),
         req.observations["environment"]["effective"]["PATH"].as_str(),
     )?;
     let views = reply.views?;
-    let (impact, findings) = produce_for_request(req, &views, &reader)?;
+    let (impact, findings) = produce_for_request(req, &views, &mut reader)?;
     let git_facts = registration::with_registration_facts(
-        reader.observation(),
+        reader.observation()?,
         reply.position,
         reply.git_facts,
     )?;
+    reader.close()?;
     Ok(
         json!({"tests":impact.tests,"retired_tests":impact.retired_tests,"findings":findings,
         "reached":impact.closure.reached.keys().collect::<Vec<_>>(), "git_facts":git_facts}),
@@ -553,12 +551,11 @@ pub fn collection_tests(
 fn produce_for_request(
     req: &Request,
     views: &Views,
-    reader: &facts::Reader,
+    reader: &mut runtime::Reader,
 ) -> Result<(Impact, Vec<Finding>), String> {
     let path = req.observations["environment"]["effective"]["PATH"].as_str();
     let changes = classification::for_endpoints(
         &req.candidate.root,
-        [&req.base.commit, &req.candidate.commit],
         [&views.base, &views.candidate],
         &req.delta,
         reader,
@@ -569,85 +566,74 @@ fn produce_for_request(
     }
     Ok(produce(views, &req.delta, changes))
 }
-pub fn judge(req: &Request) -> Response {
-    let mut response = req.response(Status::Pass);
-    let reader = facts::Reader::for_request(req);
-    let mut remote_facts = None;
-    let mut result = reader
-        .as_ref()
-        .map_err(Clone::clone)
-        .and_then(|reader| evaluate(req, reader, &mut remote_facts));
-    if let Ok(reader) = &reader {
-        reader.record(&mut response);
-        if let Some((prefix, registered)) = remote_facts {
-            match registration::with_registration_facts(reader.observation(), prefix, registered) {
-                Ok(value) if !value.is_null() => {
-                    response.outputs.insert("git_facts".into(), value);
-                }
-                Ok(_) => {}
-                Err(error) => result = Err(error),
-            }
+pub fn decision(input: impl std::io::Read) -> Result<Value, String> {
+    let envelope: Value = serde_json::from_reader(input).map_err(|e| e.to_string())?;
+    let req = Request::new(envelope["request"].clone())?;
+    let mut outputs = serde_json::Map::new();
+    let result = (|| {
+        let mut reader = runtime::Reader::open(
+            &req.candidate.root,
+            json!({"mode":"request","request":req.raw}),
+        )?;
+        let mut remote = None;
+        let result = evaluate(&req, &mut reader, &mut remote);
+        let (position, remote) = remote.unwrap_or_default();
+        let facts = registration::with_registration_facts(reader.observation()?, position, remote)?;
+        if !facts.is_null() {
+            outputs.insert("git_facts".into(), facts);
         }
-    }
-    match result {
+        reader.close()?;
+        result
+    })();
+    let (status, findings) = match result {
         Ok((impact, findings, view)) => {
-            if !findings.is_empty() {
-                response.status = Status::Fail;
-            }
-            response.findings = findings;
-            response.outputs.insert("registration_view".into(), view);
-            response
-                .outputs
-                .insert("impact".into(), serde_json::to_value(impact).unwrap());
+            let status = if findings.is_empty() { "pass" } else { "fail" };
+            outputs.insert(
+                "impact".into(),
+                serde_json::to_value(impact).map_err(|e| e.to_string())?,
+            );
+            outputs.insert("registration_view".into(), view);
+            (status, findings)
         }
         Err(message) => {
-            append_finding(
-                &mut response.status,
-                &mut response.findings,
-                Status::Error,
-                Finding {
-                    code: message
-                        .split(':')
-                        .next()
-                        // Existing request/snapshot errors retain the public E_INPUT
-                        // contract; named semantic input errors are new in impact v2.
-                        .filter(|s| s.starts_with("E_SEMANTIC_"))
-                        .unwrap_or("E_INPUT")
-                        .into(),
-                    level: "error".into(),
+            let code = message
+                .split(':')
+                .next()
+                .filter(|code| code.starts_with("E_SEMANTIC_"))
+                .unwrap_or("E_INPUT")
+                .to_owned();
+            (
+                "error",
+                vec![Finding {
+                    code,
                     message,
+                    level: "error".into(),
                     delta_refs: vec!["/request".into()],
                     causes: vec![],
-                },
-            );
+                }],
+            )
         }
-    }
-    response
+    };
+    Ok(json!({"status":status,"findings":findings,"outputs":outputs}))
 }
 fn evaluate(
     req: &Request,
-    reader: &facts::Reader,
+    reader: &mut runtime::Reader,
     remote_facts: &mut Option<(usize, Option<Value>)>,
 ) -> Result<(Impact, Vec<Finding>, Value), String> {
-    req.validate()?;
     let root = &req.candidate.root;
-    if reader.verify_oid(root, &req.base.commit)? != req.base.tree
-        || reader.verify_oid(root, &req.candidate.commit)? != req.candidate.tree
+    if reader.verify_tree("base")? != req.base.tree
+        || reader.verify_tree("candidate")? != req.candidate.tree
     {
         return Err("fixed endpoint tree mismatch".into());
     }
-    if facts::delta(
-        &reader.tree(root, &req.base.commit)?,
-        &reader.tree(root, &req.candidate.commit)?,
-    ) != req.delta
-    {
+    if reader.delta()? != req.delta {
         return Err("DELTA differs from fixed endpoints".into());
     }
     let reply = registration::read(
         root,
-        &req.config_path,
         reader,
-        json!({"mode":"request","request":req}),
+        json!({"mode":"request","request":req.raw}),
         [&req.base.commit, &req.candidate.commit],
         Some(&req.request_id),
         req.observations["environment"]["effective"]["PATH"].as_str(),

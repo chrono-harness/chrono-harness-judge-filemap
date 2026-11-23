@@ -2,7 +2,7 @@
 #[path = "registration_environment.rs"]
 mod registration_environment;
 use crate::NodeDefinition;
-use chrono_harness::{CommandSpec, file_identity, resolve_program, run_process_observed};
+use crate::runtime::{Program, Reader};
 use serde::Deserialize;
 use serde_json::Value;
 use std::{
@@ -85,37 +85,24 @@ pub(crate) struct Reply {
 
 pub(crate) fn read(
     root: &Path,
-    config: &str,
-    reader: &chrono_harness::facts::Reader,
+    reader: &mut Reader,
     operation: Value,
     commits: [&str; 2],
     request_id: Option<&str>,
     search_path: Option<&str>,
 ) -> Result<Reply, String> {
-    let originals = |documents: chrono_harness::facts::RegistrySnapshot| {
-        documents
-            .bytes
-            .into_iter()
-            .map(|(name, bytes)| {
-                String::from_utf8(bytes)
-                    .map(|value| (name, value))
-                    .map_err(|error| error.to_string())
-            })
-            .collect::<Result<BTreeMap<_, _>, String>>()
-    };
-    let base = reader.registry_snapshot(root, commits[0], config)?;
-    let candidate = reader.registry_snapshot(root, commits[1], config)?;
+    let base = reader.snapshot("base")?;
+    let candidate = reader.snapshot("candidate")?;
     let limits = candidate.values[&candidate.effective_path]["protocol"].clone();
-    let originals = [originals(base)?, originals(candidate)?];
+    let originals = [base.originals, candidate.originals];
     let scheduling = operation["scheduling"] == true;
     let query =
         serde_json::to_vec(&serde_json::json!({"operation":operation,"originals":originals}))
             .map_err(|e| e.to_string())?;
     let (position, env) = {
-        let facts = reader.observation();
+        let facts = reader.observation()?;
         let position = facts["processes"].as_array().map_or(0, Vec::len);
-        let inherited =
-            (scheduling && reader.is_bound()).then(|| &facts["environment"]["inherited"]);
+        let inherited = (scheduling && reader.bound).then(|| &facts["environment"]["inherited"]);
         let path = search_path
             .map(str::to_owned)
             .or_else(|| std::env::var("PATH").ok());
@@ -124,37 +111,9 @@ pub(crate) fn read(
             registration_environment::child_environment(path, inherited)?,
         )
     };
-    let path = resolve_program(root, "chrono-judge-registration", search_path)?;
-    let digest = file_identity(&path)?.0;
-    let command = CommandSpec {
-        program: path
-            .to_str()
-            .ok_or("registration executable path is not UTF-8")?
-            .into(),
-        args: vec!["impact-views-v1".into()],
-        env,
-        timeout_seconds: limits["timeout_seconds"]
-            .as_u64()
-            .ok_or("invalid registration timeout")?,
-        output_limit_bytes: serde_json::from_value(limits["stdout_limit_bytes"].clone())
-            .map_err(|e| e.to_string())?,
-    };
-    let result = run_process_observed(root, &command, &query, &digest)?;
-    if let Some(error) = result.failure {
-        return Err(error);
-    }
-    if result.exit_code != 0 {
-        return Err(if result.stderr.is_empty() {
-            format!("impact-views-v1 exited {}", result.exit_code)
-        } else {
-            result
-                .stderr
-                .strip_suffix('\n')
-                .unwrap_or(&result.stderr)
-                .to_owned()
-        });
-    }
-    let mut value: Value = chrono_harness::decode(&result.stdout_bytes)?;
+    let program = Program::resolve(root, "chrono-judge-registration", search_path)?;
+    let output = program.run(root, "impact-views-v1", &env, &limits, &query)?;
+    let mut value: Value = crate::strict_json::parse(&output)?;
     if value["commits"] != serde_json::json!(commits)
         || value.get("request_id") != request_id.map(serde_json::Value::from).as_ref()
     {
