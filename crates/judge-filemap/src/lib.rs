@@ -1,5 +1,6 @@
 //! Candidate FILEMAP impact policy. No operation execution, retirement or cost verdicts.
 mod classification;
+pub mod cost_inputs;
 pub mod graph;
 mod records;
 #[allow(unexpected_cfgs)]
@@ -80,14 +81,18 @@ pub fn impact_summary(input: impl std::io::Read) -> Result<Value, serde_json::Er
     // representation so a rejected field keeps the original Serde diagnostic.
     let value: Value = serde_json::from_reader(input)?;
     let impact: Impact = serde_json::from_value(value)?;
-    Ok(json!({
+    Ok(summarize(impact))
+}
+
+fn summarize(impact: Impact) -> Value {
+    json!({
         "schema": impact.schema,
         "delta": impact.delta,
         "reached": impact.closure.reached.into_keys().collect::<Vec<_>>(),
         "required_tests": impact.required_tests.into_iter().map(|test| test.node).collect::<Vec<_>>(),
         "tests": impact.tests,
         "retired_tests": impact.retired_tests,
-    }))
+    })
 }
 
 /// Read explicit edges. Consistency adapters may consume this inventory; it

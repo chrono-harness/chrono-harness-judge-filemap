@@ -5,7 +5,11 @@ fn main() -> std::process::ExitCode {
     let name = args.next();
     let query = name.as_deref().and_then(std::ffi::OsStr::to_str);
     if let Some(
-        operation @ ("impact-summary" | "endpoint-tests" | "closure-v1" | "collection-tests-v1"),
+        operation @ ("cost-inputs-v1"
+        | "impact-summary"
+        | "endpoint-tests"
+        | "closure-v1"
+        | "collection-tests-v1"),
     ) = query
     {
         if args.next().is_some() {
@@ -19,6 +23,7 @@ fn main() -> std::process::ExitCode {
         }
         let input = std::io::stdin().lock();
         let value = match operation {
+            "cost-inputs-v1" => chrono_judge_filemap::cost_inputs::prepare(input),
             "impact-summary" => {
                 chrono_judge_filemap::impact_summary(input).map_err(|e| e.to_string())
             }
