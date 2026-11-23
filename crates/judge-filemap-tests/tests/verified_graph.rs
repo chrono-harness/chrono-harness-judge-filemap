@@ -4,9 +4,9 @@
 #[path = "../../judge-filemap/src/verified_graph.rs"]
 mod policy;
 #[cfg(not(verus_keep_ghost))]
-use chrono_harness::verus;
-#[cfg(not(verus_keep_ghost))]
 use chrono_judge_filemap::verified_graph as policy;
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 #[cfg(verus_keep_ghost)]
