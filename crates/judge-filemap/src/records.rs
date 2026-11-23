@@ -1,5 +1,5 @@
 //! Stable registration record identities and set normalization, owned by FILEMAP impact.
-use chrono_judge_registration::{NodeView, Registrations};
+use crate::registration::{Endpoint, NodeKind, NodeView};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -26,7 +26,7 @@ pub fn escape(s: &str) -> String {
 fn plan_targets(
     test: &str,
     plan: Option<&Value>,
-    nodes: &BTreeMap<String, NodeView<'_>>,
+    nodes: &BTreeMap<String, NodeView>,
 ) -> BTreeSet<String> {
     let mut targets = BTreeSet::new();
     if let Some(view) = nodes.get(test) {
@@ -38,15 +38,13 @@ fn plan_targets(
         .flatten()
     {
         for (node, view) in nodes {
-            if matches!(
-                view.kind,
-                chrono_judge_registration::NodeKind::Project
-                    | chrono_judge_registration::NodeKind::Script
-            ) && view.definitions.iter().any(|d| {
-                d.value["actions"]
-                    .as_object()
-                    .is_some_and(|a| a.values().any(|a| a["operation"] == *operation))
-            }) {
+            if matches!(view.kind, NodeKind::Project | NodeKind::Script)
+                && view.definitions.iter().any(|d| {
+                    d.value["actions"]
+                        .as_object()
+                        .is_some_and(|a| a.values().any(|a| a["operation"] == *operation))
+                })
+            {
                 targets.insert(node.clone());
             }
         }
@@ -72,8 +70,8 @@ fn normalize(v: &Value, key: &str) -> Value {
     }
 }
 pub fn inventory(
-    r: &Registrations,
-    nodes: &BTreeMap<String, NodeView<'_>>,
+    r: &Endpoint,
+    nodes: &BTreeMap<String, NodeView>,
     effective_environment: Option<&BTreeMap<String, String>>,
 ) -> BTreeMap<String, Record> {
     let mut out = BTreeMap::new();
@@ -179,13 +177,9 @@ pub fn inventory(
                             }
                         }
                     }
-                    // Registration owns aliases such as project/script records' executable test nodes.
-                    for (test, view) in nodes
-                        .iter()
-                        .filter(|(identity, _)| identity.starts_with("test:"))
-                    {
-                        if view.definitions.iter().any(|d| std::ptr::eq(d.value, row)) {
-                            targets.insert(test.clone());
+                    if !prefix.is_empty() {
+                        if let Some(tests) = r.active_test_aliases.get(&format!("{prefix}:{id}")) {
+                            targets.extend(tests.iter().cloned());
                         }
                     }
                     add(scope, key, id, path, row, targets);
@@ -257,24 +251,21 @@ pub fn inventory(
                 for field in ["max_running", "resources"] {
                     add(scope, key, field, path, &v[field], all_targets());
                 }
-                let policy: chrono_judge_registration::execution::Scheduling =
-                    serde_json::from_value(v.clone()).expect("validated scheduling");
-                if !policy.priority.is_empty() {
+                if v["priority"]
+                    .as_array()
+                    .is_some_and(|priority| !priority.is_empty())
+                {
                     add(
                         scope,
                         key,
                         "priority",
                         path,
-                        &json!({"priority":policy.priority}),
+                        &json!({"priority":v["priority"]}),
                         all_targets(),
                     );
                 }
                 for (operation, claims) in v["claims"].as_object().unwrap() {
-                    let affected: BTreeSet<_> = policy
-                        .claims
-                        .keys()
-                        .filter(|other| *other == operation || policy.conflicts(operation, other))
-                        .collect();
+                    let affected = &r.claim_conflicts[operation];
                     let targets = r.filemap()["execution_plans"]
                         .as_object()
                         .unwrap()

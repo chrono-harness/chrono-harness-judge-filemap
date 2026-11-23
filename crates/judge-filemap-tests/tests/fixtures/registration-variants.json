@@ -1,0 +1,870 @@
+{
+  "profile": {
+    "from": "standard",
+    "patch": [
+      {"op": "add", "path": "/filemap/execution_plans", "value": {"test:t": {"operations": ["execute.t"], "output_limit_bytes": 1048576, "timeout_seconds": 900}}},
+      {"op": "add", "path": "/filemap/files/-", "value": {"cost": "unknown", "edges": [], "owner": "host", "path": ".chrono-harness/other.json", "surface": "product"}},
+      {"op": "replace", "path": "/filemap/schema_version", "value": 2},
+      {"op": "add", "path": "/nodes/file:.chrono-harness~1other.json", "value": {"definitions": [{"identity": "file:.chrono-harness/other.json", "value": {"cost": "unknown", "edges": [], "owner": "host", "path": ".chrono-harness/other.json", "surface": "product"}}], "kind": "file"}},
+      {"op": "replace", "path": "/original_schemas/filemap/1", "value": 2}
+    ]
+  },
+  "active_profile": {
+    "from": "profile",
+    "patch": [
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "environment:PATH", "kind": "runtime-input", "to": "project:p"}}
+    ]
+  },
+  "inactive_edge": {
+    "from": "active_profile",
+    "patch": []
+  },
+  "disconnected_plan": {
+    "from": "standard",
+    "patch": [
+      {"op": "add", "path": "/filemap/execution_plans", "value": {"test:t": {"operations": ["execute.t"], "output_limit_bytes": 1048576, "timeout_seconds": 900}}},
+      {"op": "replace", "path": "/filemap/schema_version", "value": 2},
+      {"op": "replace", "path": "/original_schemas/filemap/1", "value": 2}
+    ]
+  },
+  "disconnected_bounds": {
+    "from": "disconnected_plan",
+    "patch": [
+      {"op": "add", "path": "/filemap/execution_plans/test:t/operation_bounds", "value": {"execute.t": {"output_limit_bytes": 1048576, "timeout_seconds": 600}}}
+    ]
+  },
+  "plan": {
+    "from": "standard",
+    "patch": [
+      {"op": "add", "path": "/filemap/execution_plans", "value": {"test:t": {"operations": ["execute.t"], "output_limit_bytes": 1048576, "timeout_seconds": 900}}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "project:t", "kind": "test-execution", "to": "test:t"}},
+      {"op": "replace", "path": "/filemap/schema_version", "value": 2},
+      {"op": "replace", "path": "/original_schemas/filemap/1", "value": 2}
+    ]
+  },
+  "bounds": {
+    "from": "plan",
+    "patch": [
+      {"op": "add", "path": "/filemap/execution_plans/test:t/operation_bounds", "value": {"execute.t": {"output_limit_bytes": 1048576, "timeout_seconds": 600}}}
+    ]
+  },
+  "changed_bounds": {
+    "from": "bounds",
+    "patch": [
+      {"op": "replace", "path": "/filemap/execution_plans/test:t/operation_bounds/execute.t/timeout_seconds", "value": 601}
+    ]
+  },
+  "renamed_file": {
+    "from": "standard",
+    "patch": [
+      {"op": "replace", "path": "/filemap/files/0/path", "value": "new.bin"},
+      {"op": "remove", "path": "/nodes/file:src.bin"},
+      {"op": "add", "path": "/nodes/file:new.bin", "value": {"definitions": [{"identity": "file:new.bin", "value": {"cost": "unknown", "edges": [{"kind": "compile", "to": "project:p"}], "owner": "host", "path": "new.bin", "surface": "product"}}], "kind": "file"}}
+    ]
+  },
+  "removed_test_and_cost": {
+    "from": "standard",
+    "patch": [
+      {"op": "remove", "path": "/active_test_aliases/project:t"},
+      {"op": "remove", "path": "/filemap/cost_models/unknown"},
+      {"op": "remove", "path": "/filemap/files/0/edges/0"},
+      {"op": "replace", "path": "/filemap/files/0/path", "value": "doc.txt"},
+      {"op": "replace", "path": "/filemap/files/1/path", "value": ".chrono-harness/config.json"},
+      {"op": "replace", "path": "/filemap/files/2/path", "value": ".chrono-harness/FILEMAP.json"},
+      {"op": "replace", "path": "/filemap/files/3/path", "value": ".chrono-harness/projects.json"},
+      {"op": "replace", "path": "/filemap/files/4/path", "value": ".chrono-harness/judges.json"},
+      {"op": "replace", "path": "/filemap/files/5/path", "value": ".chrono-harness/workflow.json"},
+      {"op": "replace", "path": "/filemap/files/6/path", "value": ".gitignore"},
+      {"op": "replace", "path": "/filemap/files/7/path", "value": "p/Cargo.toml"},
+      {"op": "replace", "path": "/filemap/files/8/path", "value": "p/Cargo.lock"},
+      {"op": "replace", "path": "/filemap/files/9/path", "value": "t/Cargo.toml"},
+      {"op": "replace", "path": "/filemap/files/10/path", "value": "t/Cargo.lock"},
+      {"op": "remove", "path": "/filemap/files/11"},
+      {"op": "remove", "path": "/filemap/project_edges/0"},
+      {"op": "remove", "path": "/filemap/test_costs/0"},
+      {"op": "remove", "path": "/nodes/file:src.bin"},
+      {"op": "remove", "path": "/nodes/project:p"},
+      {"op": "remove", "path": "/nodes/project:t"},
+      {"op": "remove", "path": "/nodes/test:t"},
+      {"op": "remove", "path": "/projects/owners/2"},
+      {"op": "remove", "path": "/projects/owners/1"},
+      {"op": "remove", "path": "/projects/owners/0"},
+      {"op": "remove", "path": "/projects/projects/1"},
+      {"op": "remove", "path": "/projects/projects/0"}
+    ]
+  },
+  "retarget": {
+    "from": "standard",
+    "patch": [
+      {"op": "replace", "path": "/filemap/files/0/owner", "value": "p"},
+      {"op": "replace", "path": "/filemap/project_edges/0/from", "value": "project:t"},
+      {"op": "replace", "path": "/nodes/file:src.bin/definitions/0/value/owner", "value": "p"}
+    ]
+  },
+  "cycle": {
+    "from": "standard",
+    "patch": [
+      {"op": "add", "path": "/filemap/files/1/edges/-", "value": {"kind": "runtime-input", "to": "project:a"}},
+      {"op": "replace", "path": "/filemap/project_edges/0/from", "value": "project:a"},
+      {"op": "replace", "path": "/filemap/project_edges/0/kind", "value": "compile"},
+      {"op": "replace", "path": "/filemap/project_edges/0/to", "value": "project:z"},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "project:b", "kind": "compile", "to": "project:z"}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "project:p", "kind": "compile", "to": "project:a"}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "project:p", "kind": "compile", "to": "project:b"}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "project:z", "kind": "compile", "to": "project:p"}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "project:z", "kind": "test-execution", "to": "test:t"}},
+      {"op": "add", "path": "/nodes/project:a", "value": {"definitions": [{"identity": "project:a", "value": {"actions": {"execute": {"argv": ["-c", "exit 0"], "operation": "execute.a", "tool": "sh"}}, "id": "a", "kind": "production", "lockfile": "a/Cargo.lock", "manifest": "a/Cargo.toml", "root": "a", "test_project": "t"}}], "kind": "project"}},
+      {"op": "add", "path": "/nodes/project:b", "value": {"definitions": [{"identity": "project:b", "value": {"actions": {"execute": {"argv": ["-c", "exit 0"], "operation": "execute.b", "tool": "sh"}}, "id": "b", "kind": "production", "lockfile": "b/Cargo.lock", "manifest": "b/Cargo.toml", "root": "b", "test_project": "t"}}], "kind": "project"}},
+      {"op": "add", "path": "/nodes/project:z", "value": {"definitions": [{"identity": "project:z", "value": {"actions": {"execute": {"argv": ["-c", "exit 0"], "operation": "execute.z", "tool": "sh"}}, "id": "z", "kind": "production", "lockfile": "z/Cargo.lock", "manifest": "z/Cargo.toml", "root": "z", "test_project": "t"}}], "kind": "project"}},
+      {"op": "add", "path": "/nodes/file:doc.txt/definitions/0/value/edges/-", "value": {"kind": "runtime-input", "to": "project:a"}},
+      {"op": "add", "path": "/projects/projects/-", "value": {"actions": {"execute": {"argv": ["-c", "exit 0"], "operation": "execute.a", "tool": "sh"}}, "id": "a", "kind": "production", "lockfile": "a/Cargo.lock", "manifest": "a/Cargo.toml", "root": "a", "test_project": "t"}},
+      {"op": "add", "path": "/projects/projects/-", "value": {"actions": {"execute": {"argv": ["-c", "exit 0"], "operation": "execute.b", "tool": "sh"}}, "id": "b", "kind": "production", "lockfile": "b/Cargo.lock", "manifest": "b/Cargo.toml", "root": "b", "test_project": "t"}},
+      {"op": "add", "path": "/projects/projects/-", "value": {"actions": {"execute": {"argv": ["-c", "exit 0"], "operation": "execute.z", "tool": "sh"}}, "id": "z", "kind": "production", "lockfile": "z/Cargo.lock", "manifest": "z/Cargo.toml", "root": "z", "test_project": "t"}}
+    ]
+  },
+  "build_input": {
+    "from": "standard",
+    "patch": [
+      {"op": "add", "path": "/config/environment/inputs/-", "value": {"id": "data", "location": "/external/data", "sha256": null}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "input:data", "kind": "build-input", "to": "project:p"}},
+      {"op": "add", "path": "/nodes/input:data", "value": {"definitions": [{"identity": "input:data", "value": {"id": "data", "location": "/external/data", "sha256": null}}], "kind": "input"}},
+      {"op": "add", "path": "/nodes/environment:PATH/definitions/0/value/inputs/-", "value": {"id": "data", "location": "/external/data", "sha256": null}}
+    ]
+  },
+  "build_digest": {
+    "from": "build_input",
+    "patch": [
+      {"op": "replace", "path": "/config/environment/inputs/0/sha256", "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
+      {"op": "replace", "path": "/nodes/environment:PATH/definitions/0/value/inputs/0/sha256", "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
+      {"op": "replace", "path": "/nodes/input:data/definitions/0/value/sha256", "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}
+    ]
+  },
+  "runtime_input": {
+    "from": "standard",
+    "patch": [
+      {"op": "add", "path": "/config/environment/inputs/-", "value": {"id": "data", "location": "/external/data", "sha256": null}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "input:data", "kind": "runtime-input", "to": "project:p"}},
+      {"op": "add", "path": "/nodes/input:data", "value": {"definitions": [{"identity": "input:data", "value": {"id": "data", "location": "/external/data", "sha256": null}}], "kind": "input"}},
+      {"op": "add", "path": "/nodes/environment:PATH/definitions/0/value/inputs/-", "value": {"id": "data", "location": "/external/data", "sha256": null}}
+    ]
+  },
+  "runtime_digest": {
+    "from": "runtime_input",
+    "patch": [
+      {"op": "replace", "path": "/config/environment/inputs/0/sha256", "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
+      {"op": "replace", "path": "/nodes/environment:PATH/definitions/0/value/inputs/0/sha256", "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
+      {"op": "replace", "path": "/nodes/input:data/definitions/0/value/sha256", "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}
+    ]
+  },
+  "no_execution_edge": {
+    "from": "standard",
+    "patch": [
+      {"op": "remove", "path": "/filemap/project_edges/0"}
+    ]
+  },
+  "changed_cost_no_edge": {
+    "from": "no_execution_edge",
+    "patch": [
+      {"op": "replace", "path": "/filemap/test_costs/0/cost", "value": "changed"}
+    ]
+  },
+  "wrong_type": {
+    "from": "standard",
+    "patch": [
+      {"op": "replace", "path": "/filemap/project_edges/0/kind", "value": "compile"}
+    ]
+  },
+  "dangling": {
+    "from": "standard",
+    "patch": [
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "project:p", "kind": "compile", "to": "project:missing"}}
+    ]
+  },
+  "wrong_source": {
+    "from": "dangling",
+    "patch": [
+      {"op": "replace", "path": "/filemap/project_edges/1/from", "value": "judge:registration"},
+      {"op": "replace", "path": "/filemap/project_edges/1/to", "value": "project:p"}
+    ]
+  },
+  "trigger": {
+    "from": "standard",
+    "patch": [
+      {"op": "add", "path": "/filemap/files/0/edges/-", "value": {"kind": "judge-trigger", "to": "judge:filemap"}},
+      {"op": "add", "path": "/nodes/file:src.bin/definitions/0/value/edges/-", "value": {"kind": "judge-trigger", "to": "judge:filemap"}}
+    ]
+  },
+  "reordered": {
+    "from": "standard",
+    "patch": [
+      {"op": "remove", "path": "/filemap/files/0/edges/0"},
+      {"op": "replace", "path": "/filemap/files/0/path", "value": "t/Cargo.lock"},
+      {"op": "replace", "path": "/filemap/files/1/path", "value": "t/Cargo.toml"},
+      {"op": "replace", "path": "/filemap/files/2/path", "value": "p/Cargo.lock"},
+      {"op": "replace", "path": "/filemap/files/3/path", "value": "p/Cargo.toml"},
+      {"op": "replace", "path": "/filemap/files/4/path", "value": ".gitignore"},
+      {"op": "replace", "path": "/filemap/files/5/path", "value": ".chrono-harness/workflow.json"},
+      {"op": "replace", "path": "/filemap/files/6/path", "value": ".chrono-harness/judges.json"},
+      {"op": "replace", "path": "/filemap/files/7/path", "value": ".chrono-harness/projects.json"},
+      {"op": "replace", "path": "/filemap/files/8/path", "value": ".chrono-harness/FILEMAP.json"},
+      {"op": "replace", "path": "/filemap/files/9/path", "value": ".chrono-harness/config.json"},
+      {"op": "replace", "path": "/filemap/files/10/path", "value": "doc.txt"},
+      {"op": "add", "path": "/filemap/files/11/edges/-", "value": {"kind": "compile", "to": "project:p"}},
+      {"op": "replace", "path": "/filemap/files/11/path", "value": "src.bin"},
+      {"op": "add", "path": "/judges/judges/0/after/-", "value": "registration"},
+      {"op": "replace", "path": "/judges/judges/0/executable", "value": ".chrono-harness/bin/chrono-judge-filemap"},
+      {"op": "replace", "path": "/judges/judges/0/id", "value": "filemap"},
+      {"op": "remove", "path": "/judges/judges/1/after/0"},
+      {"op": "replace", "path": "/judges/judges/1/executable", "value": ".chrono-harness/bin/chrono-judge-registration"},
+      {"op": "replace", "path": "/judges/judges/1/id", "value": "registration"},
+      {"op": "replace", "path": "/projects/owners/0", "value": "t"},
+      {"op": "replace", "path": "/projects/owners/2", "value": "host"},
+      {"op": "remove", "path": "/projects/projects/0/test_project"},
+      {"op": "add", "path": "/projects/projects/0/tests_for", "value": "p"},
+      {"op": "replace", "path": "/projects/projects/0/actions/execute/operation", "value": "execute.t"},
+      {"op": "replace", "path": "/projects/projects/0/id", "value": "t"},
+      {"op": "replace", "path": "/projects/projects/0/kind", "value": "test"},
+      {"op": "replace", "path": "/projects/projects/0/lockfile", "value": "t/Cargo.lock"},
+      {"op": "replace", "path": "/projects/projects/0/manifest", "value": "t/Cargo.toml"},
+      {"op": "replace", "path": "/projects/projects/0/root", "value": "t"},
+      {"op": "remove", "path": "/projects/projects/1/tests_for"},
+      {"op": "add", "path": "/projects/projects/1/test_project", "value": "t"},
+      {"op": "replace", "path": "/projects/projects/1/actions/execute/operation", "value": "execute.p"},
+      {"op": "replace", "path": "/projects/projects/1/id", "value": "p"},
+      {"op": "replace", "path": "/projects/projects/1/kind", "value": "production"},
+      {"op": "replace", "path": "/projects/projects/1/lockfile", "value": "p/Cargo.lock"},
+      {"op": "replace", "path": "/projects/projects/1/manifest", "value": "p/Cargo.toml"},
+      {"op": "replace", "path": "/projects/projects/1/root", "value": "p"}
+    ]
+  },
+  "reordered_argv": {
+    "from": "standard",
+    "patch": [
+      {"op": "remove", "path": "/filemap/files/0/edges/0"},
+      {"op": "replace", "path": "/filemap/files/0/path", "value": "t/Cargo.lock"},
+      {"op": "replace", "path": "/filemap/files/1/path", "value": "t/Cargo.toml"},
+      {"op": "replace", "path": "/filemap/files/2/path", "value": "p/Cargo.lock"},
+      {"op": "replace", "path": "/filemap/files/3/path", "value": "p/Cargo.toml"},
+      {"op": "replace", "path": "/filemap/files/4/path", "value": ".gitignore"},
+      {"op": "replace", "path": "/filemap/files/5/path", "value": ".chrono-harness/workflow.json"},
+      {"op": "replace", "path": "/filemap/files/6/path", "value": ".chrono-harness/judges.json"},
+      {"op": "replace", "path": "/filemap/files/7/path", "value": ".chrono-harness/projects.json"},
+      {"op": "replace", "path": "/filemap/files/8/path", "value": ".chrono-harness/FILEMAP.json"},
+      {"op": "replace", "path": "/filemap/files/9/path", "value": ".chrono-harness/config.json"},
+      {"op": "replace", "path": "/filemap/files/10/path", "value": "doc.txt"},
+      {"op": "add", "path": "/filemap/files/11/edges/-", "value": {"kind": "compile", "to": "project:p"}},
+      {"op": "replace", "path": "/filemap/files/11/path", "value": "src.bin"},
+      {"op": "add", "path": "/judges/judges/0/after/-", "value": "registration"},
+      {"op": "replace", "path": "/judges/judges/0/executable", "value": ".chrono-harness/bin/chrono-judge-filemap"},
+      {"op": "replace", "path": "/judges/judges/0/id", "value": "filemap"},
+      {"op": "remove", "path": "/judges/judges/1/after/0"},
+      {"op": "replace", "path": "/judges/judges/1/executable", "value": ".chrono-harness/bin/chrono-judge-registration"},
+      {"op": "replace", "path": "/judges/judges/1/id", "value": "registration"},
+      {"op": "replace", "path": "/nodes/project:p/definitions/0/value/actions/execute/argv/0", "value": "exit 0"},
+      {"op": "replace", "path": "/nodes/project:p/definitions/0/value/actions/execute/argv/1", "value": "-c"},
+      {"op": "replace", "path": "/projects/owners/0", "value": "t"},
+      {"op": "replace", "path": "/projects/owners/2", "value": "host"},
+      {"op": "remove", "path": "/projects/projects/0/test_project"},
+      {"op": "add", "path": "/projects/projects/0/tests_for", "value": "p"},
+      {"op": "replace", "path": "/projects/projects/0/actions/execute/operation", "value": "execute.t"},
+      {"op": "replace", "path": "/projects/projects/0/id", "value": "t"},
+      {"op": "replace", "path": "/projects/projects/0/kind", "value": "test"},
+      {"op": "replace", "path": "/projects/projects/0/lockfile", "value": "t/Cargo.lock"},
+      {"op": "replace", "path": "/projects/projects/0/manifest", "value": "t/Cargo.toml"},
+      {"op": "replace", "path": "/projects/projects/0/root", "value": "t"},
+      {"op": "remove", "path": "/projects/projects/1/tests_for"},
+      {"op": "add", "path": "/projects/projects/1/test_project", "value": "t"},
+      {"op": "replace", "path": "/projects/projects/1/actions/execute/argv/0", "value": "exit 0"},
+      {"op": "replace", "path": "/projects/projects/1/actions/execute/argv/1", "value": "-c"},
+      {"op": "replace", "path": "/projects/projects/1/actions/execute/operation", "value": "execute.p"},
+      {"op": "replace", "path": "/projects/projects/1/id", "value": "p"},
+      {"op": "replace", "path": "/projects/projects/1/kind", "value": "production"},
+      {"op": "replace", "path": "/projects/projects/1/lockfile", "value": "p/Cargo.lock"},
+      {"op": "replace", "path": "/projects/projects/1/manifest", "value": "p/Cargo.toml"},
+      {"op": "replace", "path": "/projects/projects/1/root", "value": "p"}
+    ]
+  },
+  "invalid_file_edge": {
+    "from": "standard",
+    "patch": [
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "file:doc.txt", "kind": "compile", "to": "test:t"}}
+    ]
+  },
+  "removed_file_edge": {
+    "from": "standard",
+    "patch": [
+      {"op": "remove", "path": "/filemap/files/0/edges/0"},
+      {"op": "remove", "path": "/nodes/file:src.bin/definitions/0/value/edges/0"}
+    ]
+  },
+  "input_order": {
+    "from": "standard",
+    "patch": [
+      {"op": "add", "path": "/config/environment/inputs/-", "value": {"id": "a", "location": "/a", "sha256": null}},
+      {"op": "add", "path": "/config/environment/inputs/-", "value": {"id": "b", "location": "/b", "sha256": null}},
+      {"op": "add", "path": "/filemap/files/0/edges/-", "value": {"kind": "build-input", "to": "project:t"}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "project:t", "kind": "test-execution", "to": "test:t"}},
+      {"op": "add", "path": "/nodes/input:a", "value": {"definitions": [{"identity": "input:a", "value": {"id": "a", "location": "/a", "sha256": null}}], "kind": "input"}},
+      {"op": "add", "path": "/nodes/input:b", "value": {"definitions": [{"identity": "input:b", "value": {"id": "b", "location": "/b", "sha256": null}}], "kind": "input"}},
+      {"op": "add", "path": "/nodes/environment:PATH/definitions/0/value/inputs/-", "value": {"id": "a", "location": "/a", "sha256": null}},
+      {"op": "add", "path": "/nodes/environment:PATH/definitions/0/value/inputs/-", "value": {"id": "b", "location": "/b", "sha256": null}},
+      {"op": "add", "path": "/nodes/file:src.bin/definitions/0/value/edges/-", "value": {"kind": "build-input", "to": "project:t"}}
+    ]
+  },
+  "reversed_inputs": {
+    "from": "input_order",
+    "patch": [
+      {"op": "replace", "path": "/config/environment/inputs/0/id", "value": "b"},
+      {"op": "replace", "path": "/config/environment/inputs/0/location", "value": "/b"},
+      {"op": "replace", "path": "/config/environment/inputs/1/id", "value": "a"},
+      {"op": "replace", "path": "/config/environment/inputs/1/location", "value": "/a"},
+      {"op": "replace", "path": "/filemap/files/0/edges/0/kind", "value": "build-input"},
+      {"op": "replace", "path": "/filemap/files/0/edges/0/to", "value": "project:t"},
+      {"op": "replace", "path": "/filemap/files/0/edges/1/kind", "value": "compile"},
+      {"op": "replace", "path": "/filemap/files/0/edges/1/to", "value": "project:p"},
+      {"op": "replace", "path": "/filemap/project_edges/0/from", "value": "project:t"},
+      {"op": "replace", "path": "/filemap/project_edges/1/from", "value": "project:p"},
+      {"op": "replace", "path": "/nodes/environment:PATH/definitions/0/value/inputs/0/id", "value": "b"},
+      {"op": "replace", "path": "/nodes/environment:PATH/definitions/0/value/inputs/0/location", "value": "/b"},
+      {"op": "replace", "path": "/nodes/environment:PATH/definitions/0/value/inputs/1/id", "value": "a"},
+      {"op": "replace", "path": "/nodes/environment:PATH/definitions/0/value/inputs/1/location", "value": "/a"},
+      {"op": "replace", "path": "/nodes/file:src.bin/definitions/0/value/edges/0/kind", "value": "build-input"},
+      {"op": "replace", "path": "/nodes/file:src.bin/definitions/0/value/edges/0/to", "value": "project:t"},
+      {"op": "replace", "path": "/nodes/file:src.bin/definitions/0/value/edges/1/kind", "value": "compile"},
+      {"op": "replace", "path": "/nodes/file:src.bin/definitions/0/value/edges/1/to", "value": "project:p"}
+    ]
+  },
+  "measured_cost": {
+    "from": "standard",
+    "patch": [
+      {"op": "replace", "path": "/filemap/cost_models/unknown/basis", "value": "old fixture measurement"},
+      {"op": "replace", "path": "/filemap/cost_models/unknown/cpu_ms", "value": 17}
+    ]
+  },
+  "new_cost": {
+    "from": "measured_cost",
+    "patch": [
+      {"op": "add", "path": "/filemap/cost_models/new", "value": {"basis": "new estimate unknown", "cpu_ms": null, "io_bytes": null, "peak_rss_bytes": null, "wall_ms": null}},
+      {"op": "replace", "path": "/filemap/test_costs/0/cost", "value": "new"}
+    ]
+  },
+  "removed_test": {
+    "from": "standard",
+    "patch": [
+      {"op": "remove", "path": "/active_test_aliases/project:t"},
+      {"op": "remove", "path": "/nodes/project:t"},
+      {"op": "remove", "path": "/nodes/test:t"},
+      {"op": "remove", "path": "/projects/projects/1"}
+    ]
+  },
+  "ordered_plan": {
+    "from": "standard",
+    "patch": [
+      {"op": "add", "path": "/filemap/execution_plans", "value": {"test:t": {"operations": ["prepare.p", "execute.t"], "output_limit_bytes": 4096, "timeout_seconds": 30}}},
+      {"op": "replace", "path": "/filemap/schema_version", "value": 2},
+      {"op": "add", "path": "/nodes/project:p/definitions/0/value/actions/build", "value": {"argv": ["-c", "exit 0"], "operation": "prepare.p", "tool": "sh"}},
+      {"op": "replace", "path": "/original_schemas/filemap/1", "value": 2},
+      {"op": "add", "path": "/projects/projects/0/actions/build", "value": {"argv": ["-c", "exit 0"], "operation": "prepare.p", "tool": "sh"}}
+    ]
+  },
+  "reversed_plan": {
+    "from": "ordered_plan",
+    "patch": [
+      {"op": "replace", "path": "/filemap/execution_plans/test:t/operations/0", "value": "execute.t"},
+      {"op": "replace", "path": "/filemap/execution_plans/test:t/operations/1", "value": "prepare.p"}
+    ]
+  },
+  "isolated_plan": {
+    "from": "standard",
+    "patch": [
+      {"op": "add", "path": "/filemap/execution_plans", "value": {"test:t": {"operations": ["prepare.p", "execute.t"], "output_limit_bytes": 4096, "timeout_seconds": 30}}},
+      {"op": "remove", "path": "/filemap/project_edges/0"},
+      {"op": "replace", "path": "/filemap/schema_version", "value": 2},
+      {"op": "add", "path": "/nodes/project:p/definitions/0/value/actions/build", "value": {"argv": ["-c", "exit 0"], "operation": "prepare.p", "tool": "sh"}},
+      {"op": "replace", "path": "/original_schemas/filemap/1", "value": 2},
+      {"op": "add", "path": "/projects/projects/0/actions/build", "value": {"argv": ["-c", "exit 0"], "operation": "prepare.p", "tool": "sh"}}
+    ]
+  },
+  "isolated_reversed_plan": {
+    "from": "isolated_plan",
+    "patch": [
+      {"op": "replace", "path": "/filemap/execution_plans/test:t/operations/0", "value": "execute.t"},
+      {"op": "replace", "path": "/filemap/execution_plans/test:t/operations/1", "value": "prepare.p"}
+    ]
+  },
+  "assigned_units": {
+    "from": "standard",
+    "patch": [
+      {"op": "add", "path": "/active_test_aliases/project:t2", "value": ["test:t2"]},
+      {"op": "add", "path": "/config/execution_units", "value": {"collection_limits": {"manifest_bytes": 1024, "report_bytes": 67108864}, "report_path": ".chrono-harness/state/collected.json", "shared_operations": {}, "units": {"one": {"report_path": ".chrono-harness/state/one.json", "tests": ["test:t"]}, "two": {"report_path": ".chrono-harness/state/two.json", "tests": ["test:t2"]}}}},
+      {"op": "add", "path": "/config/facts_git", "value": {"input": "data", "tool": "sh"}},
+      {"op": "add", "path": "/config/environment/inputs/-", "value": {"id": "data", "location": "data", "presence": "present", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
+      {"op": "add", "path": "/config/input_closure/bindings", "value": []},
+      {"op": "replace", "path": "/config/schema_version", "value": 3},
+      {"op": "add", "path": "/filemap/execution_plans", "value": {"test:t": {"operations": ["prepare.p", "execute.t"], "output_limit_bytes": 4096, "timeout_seconds": 30}, "test:t2": {"operations": ["prepare.p2", "execute.t2"], "output_limit_bytes": 4096, "timeout_seconds": 30}}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "project:p2", "kind": "test-execution", "to": "test:t2"}},
+      {"op": "replace", "path": "/filemap/schema_version", "value": 2},
+      {"op": "add", "path": "/filemap/test_costs/-", "value": {"cost": "unknown", "test": "t2"}},
+      {"op": "add", "path": "/nodes/input:data", "value": {"definitions": [{"identity": "input:data", "value": {"id": "data", "location": "data", "presence": "present", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}], "kind": "input"}},
+      {"op": "add", "path": "/nodes/project:p2", "value": {"definitions": [{"identity": "project:p2", "value": {"actions": {"build": {"argv": ["-c", "exit 0"], "operation": "prepare.p2", "tool": "sh"}, "execute": {"argv": ["-c", "exit 0"], "operation": "execute.p2", "tool": "sh"}}, "id": "p2", "kind": "production", "lockfile": "p2/Cargo.lock", "manifest": "p2/Cargo.toml", "root": "p2", "test_project": "t2"}}], "kind": "project"}},
+      {"op": "add", "path": "/nodes/project:t2", "value": {"definitions": [{"identity": "project:t2", "value": {"actions": {"execute": {"argv": ["-c", "exit 0"], "operation": "execute.t2", "tool": "sh"}}, "id": "t2", "kind": "test", "lockfile": "t2/Cargo.lock", "manifest": "t2/Cargo.toml", "root": "t2", "tests_for": "p2"}}], "kind": "project"}},
+      {"op": "add", "path": "/nodes/test:t2", "value": {"definitions": [{"identity": "project:t2", "value": {"actions": {"execute": {"argv": ["-c", "exit 0"], "operation": "execute.t2", "tool": "sh"}}, "id": "t2", "kind": "test", "lockfile": "t2/Cargo.lock", "manifest": "t2/Cargo.toml", "root": "t2", "tests_for": "p2"}}], "kind": "test"}},
+      {"op": "add", "path": "/nodes/environment:PATH/definitions/0/value/inputs/-", "value": {"id": "data", "location": "data", "presence": "present", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
+      {"op": "add", "path": "/nodes/project:p/definitions/0/value/actions/build", "value": {"argv": ["-c", "exit 0"], "operation": "prepare.p", "tool": "sh"}},
+      {"op": "replace", "path": "/original_schemas/config/1", "value": 3},
+      {"op": "replace", "path": "/original_schemas/filemap/1", "value": 2},
+      {"op": "add", "path": "/projects/owners/-", "value": "p2"},
+      {"op": "add", "path": "/projects/owners/-", "value": "t2"},
+      {"op": "add", "path": "/projects/projects/0/actions/build", "value": {"argv": ["-c", "exit 0"], "operation": "prepare.p", "tool": "sh"}},
+      {"op": "add", "path": "/projects/projects/-", "value": {"actions": {"build": {"argv": ["-c", "exit 0"], "operation": "prepare.p2", "tool": "sh"}, "execute": {"argv": ["-c", "exit 0"], "operation": "execute.p2", "tool": "sh"}}, "id": "p2", "kind": "production", "lockfile": "p2/Cargo.lock", "manifest": "p2/Cargo.toml", "root": "p2", "test_project": "t2"}},
+      {"op": "add", "path": "/projects/projects/-", "value": {"actions": {"execute": {"argv": ["-c", "exit 0"], "operation": "execute.t2", "tool": "sh"}}, "id": "t2", "kind": "test", "lockfile": "t2/Cargo.lock", "manifest": "t2/Cargo.toml", "root": "t2", "tests_for": "p2"}}
+    ]
+  },
+  "exchanged_units": {
+    "from": "assigned_units",
+    "patch": [
+      {"op": "replace", "path": "/config/execution_units/units/one/tests/0", "value": "test:t2"},
+      {"op": "replace", "path": "/config/execution_units/units/two/tests/0", "value": "test:t"}
+    ]
+  },
+  "judge_inputs": {
+    "from": "standard",
+    "patch": [
+      {"op": "add", "path": "/config/environment/inputs/-", "value": {"id": "data", "location": "data", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "tool:sh", "kind": "runtime-input", "to": "judge:registration"}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "environment:PATH", "kind": "runtime-input", "to": "judge:registration"}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "input:data", "kind": "judge-trigger", "to": "judge:registration"}},
+      {"op": "add", "path": "/nodes/input:data", "value": {"definitions": [{"identity": "input:data", "value": {"id": "data", "location": "data", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}], "kind": "input"}},
+      {"op": "add", "path": "/nodes/environment:PATH/definitions/0/value/inputs/-", "value": {"id": "data", "location": "data", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}
+    ]
+  },
+  "judge_tool": {
+    "from": "judge_inputs",
+    "patch": [
+      {"op": "replace", "path": "/config/tools/0/expected_version", "value": "new"},
+      {"op": "replace", "path": "/nodes/tool:sh/definitions/0/value/expected_version", "value": "new"}
+    ]
+  },
+  "judge_path": {
+    "from": "judge_inputs",
+    "patch": [
+      {"op": "add", "path": "/config/environment/values/PATH", "value": "different"},
+      {"op": "add", "path": "/nodes/environment:PATH/definitions/0/value/values/PATH", "value": "different"}
+    ]
+  },
+  "judge_digest": {
+    "from": "judge_inputs",
+    "patch": [
+      {"op": "replace", "path": "/config/environment/inputs/0/sha256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+      {"op": "replace", "path": "/nodes/environment:PATH/definitions/0/value/inputs/0/sha256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+      {"op": "replace", "path": "/nodes/input:data/definitions/0/value/sha256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+    ]
+  },
+  "consumer_inputs": {
+    "from": "standard",
+    "patch": [
+      {"op": "add", "path": "/config/environment/inputs/-", "value": {"id": "data", "location": "data", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "tool:sh", "kind": "runtime-input", "to": "project:p"}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "environment:PATH", "kind": "runtime-input", "to": "project:p"}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "input:data", "kind": "runtime-input", "to": "project:p"}},
+      {"op": "add", "path": "/nodes/input:data", "value": {"definitions": [{"identity": "input:data", "value": {"id": "data", "location": "data", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}], "kind": "input"}},
+      {"op": "add", "path": "/nodes/environment:PATH/definitions/0/value/inputs/-", "value": {"id": "data", "location": "data", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}
+    ]
+  },
+  "consumer_tool": {
+    "from": "consumer_inputs",
+    "patch": [
+      {"op": "replace", "path": "/config/tools/0/expected_version", "value": "new"},
+      {"op": "replace", "path": "/nodes/tool:sh/definitions/0/value/expected_version", "value": "new"}
+    ]
+  },
+  "consumer_path": {
+    "from": "consumer_inputs",
+    "patch": [
+      {"op": "add", "path": "/config/environment/values/PATH", "value": "different"},
+      {"op": "add", "path": "/nodes/environment:PATH/definitions/0/value/values/PATH", "value": "different"}
+    ]
+  },
+  "consumer_digest": {
+    "from": "consumer_inputs",
+    "patch": [
+      {"op": "replace", "path": "/config/environment/inputs/0/sha256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+      {"op": "replace", "path": "/nodes/environment:PATH/definitions/0/value/inputs/0/sha256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+      {"op": "replace", "path": "/nodes/input:data/definitions/0/value/sha256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+    ]
+  },
+  "isolated_inputs": {
+    "from": "standard",
+    "patch": [
+      {"op": "add", "path": "/config/environment/inputs/-", "value": {"id": "data", "location": "data", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
+      {"op": "remove", "path": "/filemap/project_edges/0"},
+      {"op": "add", "path": "/nodes/input:data", "value": {"definitions": [{"identity": "input:data", "value": {"id": "data", "location": "data", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}], "kind": "input"}},
+      {"op": "add", "path": "/nodes/environment:PATH/definitions/0/value/inputs/-", "value": {"id": "data", "location": "data", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}
+    ]
+  },
+  "isolated_tool": {
+    "from": "isolated_inputs",
+    "patch": [
+      {"op": "replace", "path": "/config/tools/0/expected_version", "value": "new"},
+      {"op": "replace", "path": "/nodes/tool:sh/definitions/0/value/expected_version", "value": "new"}
+    ]
+  },
+  "isolated_path": {
+    "from": "isolated_inputs",
+    "patch": [
+      {"op": "add", "path": "/config/environment/values/PATH", "value": "different"},
+      {"op": "add", "path": "/nodes/environment:PATH/definitions/0/value/values/PATH", "value": "different"}
+    ]
+  },
+  "isolated_digest": {
+    "from": "isolated_inputs",
+    "patch": [
+      {"op": "replace", "path": "/config/environment/inputs/0/sha256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+      {"op": "replace", "path": "/nodes/environment:PATH/definitions/0/value/inputs/0/sha256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+      {"op": "replace", "path": "/nodes/input:data/definitions/0/value/sha256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+    ]
+  },
+  "ambiguous": {
+    "from": "standard",
+    "patch": [
+      {"op": "add", "path": "/active_test_aliases/script:t", "value": ["test:t"]},
+      {"op": "add", "path": "/filemap/files/-", "value": {"cost": "unknown", "edges": [], "owner": "host", "path": "s.sh", "surface": "product"}},
+      {"op": "add", "path": "/filemap/files/-", "value": {"cost": "unknown", "edges": [], "owner": "host", "path": "st.sh", "surface": "product"}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "script:s", "kind": "test-execution", "to": "test:t"}},
+      {"op": "add", "path": "/nodes/file:s.sh", "value": {"definitions": [{"identity": "file:s.sh", "value": {"cost": "unknown", "edges": [], "owner": "host", "path": "s.sh", "surface": "product"}}], "kind": "file"}},
+      {"op": "add", "path": "/nodes/file:st.sh", "value": {"definitions": [{"identity": "file:st.sh", "value": {"cost": "unknown", "edges": [], "owner": "host", "path": "st.sh", "surface": "product"}}], "kind": "file"}},
+      {"op": "add", "path": "/nodes/script:s", "value": {"definitions": [{"identity": "script:s", "value": {"actions": {"execute": {"argv": ["s.sh"], "operation": "script.s", "tool": "sh"}}, "id": "s", "path": "s.sh", "test_script": "t"}}], "kind": "script"}},
+      {"op": "add", "path": "/nodes/script:t", "value": {"definitions": [{"identity": "script:t", "value": {"actions": {"execute": {"argv": ["st.sh"], "operation": "script.st", "tool": "sh"}}, "id": "t", "path": "st.sh", "tests_for": "s"}}], "kind": "script"}},
+      {"op": "add", "path": "/nodes/test:t/definitions/-", "value": {"identity": "script:t", "value": {"actions": {"execute": {"argv": ["st.sh"], "operation": "script.st", "tool": "sh"}}, "id": "t", "path": "st.sh", "tests_for": "s"}}},
+      {"op": "add", "path": "/projects/owners/-", "value": "s"},
+      {"op": "add", "path": "/projects/scripts/-", "value": {"actions": {"execute": {"argv": ["s.sh"], "operation": "script.s", "tool": "sh"}}, "id": "s", "path": "s.sh", "test_script": "t"}},
+      {"op": "add", "path": "/projects/scripts/-", "value": {"actions": {"execute": {"argv": ["st.sh"], "operation": "script.st", "tool": "sh"}}, "id": "t", "path": "st.sh", "tests_for": "s"}}
+    ]
+  },
+  "repaired_alias": {
+    "from": "ambiguous",
+    "patch": [
+      {"op": "remove", "path": "/active_test_aliases/script:t"},
+      {"op": "remove", "path": "/filemap/project_edges/1"},
+      {"op": "remove", "path": "/nodes/script:s"},
+      {"op": "remove", "path": "/nodes/script:t"},
+      {"op": "remove", "path": "/nodes/test:t/definitions/1"},
+      {"op": "replace", "path": "/original_schemas/workflow/1", "value": 2},
+      {"op": "remove", "path": "/projects/scripts/1"},
+      {"op": "remove", "path": "/projects/scripts/0"},
+      {"op": "add", "path": "/workflow/historical_profiles", "value": [{"ambiguities": [{"definitions": ["project:t", "script:t"], "node": "test:t", "replacement": "test:t"}], "filemap_version": 1, "id": "chrono-ci-check/v1", "legacy_records": [], "mappings": [], "profile_path": "profile.json", "script": "decoder", "test": "decoder-tests"}]},
+      {"op": "replace", "path": "/workflow/schema_version", "value": 2}
+    ]
+  },
+  "absent_repair": {
+    "from": "ambiguous",
+    "patch": [
+      {"op": "remove", "path": "/active_test_aliases/script:t"},
+      {"op": "remove", "path": "/filemap/project_edges/1"},
+      {"op": "remove", "path": "/nodes/script:s"},
+      {"op": "remove", "path": "/nodes/script:t"},
+      {"op": "remove", "path": "/nodes/test:t/definitions/1"},
+      {"op": "replace", "path": "/original_schemas/workflow/1", "value": 2},
+      {"op": "remove", "path": "/projects/scripts/1"},
+      {"op": "remove", "path": "/projects/scripts/0"},
+      {"op": "add", "path": "/workflow/historical_profiles", "value": [{"ambiguities": [], "filemap_version": 1, "id": "chrono-ci-check/v1", "legacy_records": [], "mappings": [], "profile_path": "profile.json", "script": "decoder", "test": "decoder-tests"}]},
+      {"op": "replace", "path": "/workflow/schema_version", "value": 2}
+    ]
+  },
+  "remaining_collision": {
+    "from": "ambiguous",
+    "patch": [
+      {"op": "replace", "path": "/original_schemas/workflow/1", "value": 2},
+      {"op": "add", "path": "/workflow/historical_profiles", "value": [{"ambiguities": [{"definitions": ["project:t", "script:t"], "node": "test:t", "replacement": "test:t"}], "filemap_version": 1, "id": "chrono-ci-check/v1", "legacy_records": [], "mappings": [], "profile_path": "profile.json", "script": "decoder", "test": "decoder-tests"}]},
+      {"op": "replace", "path": "/workflow/schema_version", "value": 2}
+    ]
+  },
+  "old_environment": {
+    "from": "standard",
+    "patch": [
+      {"op": "replace", "path": "/config/environment/inherit/0", "value": "MODE"},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "environment:MODE", "kind": "runtime-input", "to": "project:p"}},
+      {"op": "remove", "path": "/nodes/environment:PATH"},
+      {"op": "add", "path": "/nodes/environment:MODE", "value": {"definitions": [{"identity": "environment:MODE", "value": {"inherit": ["MODE"], "inputs": [], "values": {}}}], "kind": "environment"}}
+    ]
+  },
+  "removed_environment": {
+    "from": "old_environment",
+    "patch": [
+      {"op": "remove", "path": "/config/environment/inherit/0"},
+      {"op": "remove", "path": "/filemap/project_edges/1"},
+      {"op": "remove", "path": "/nodes/environment:MODE"}
+    ]
+  },
+  "project_artifact": {
+    "from": "standard",
+    "patch": [
+      {"op": "add", "path": "/active_test_aliases/script:st", "value": ["test:st"]},
+      {"op": "add", "path": "/config/artifacts/-", "value": {"kind": "output", "owner": "p", "path": "declared outputs/", "tracked": false}},
+      {"op": "add", "path": "/filemap/files/-", "value": {"cost": "unknown", "edges": [], "owner": "host", "path": "s.sh", "surface": "product"}},
+      {"op": "add", "path": "/filemap/files/-", "value": {"cost": "unknown", "edges": [], "owner": "host", "path": "st.sh", "surface": "product"}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "script:s", "kind": "test-execution", "to": "test:st"}},
+      {"op": "add", "path": "/filemap/test_costs/-", "value": {"cost": "unknown", "test": "st"}},
+      {"op": "add", "path": "/nodes/file:s.sh", "value": {"definitions": [{"identity": "file:s.sh", "value": {"cost": "unknown", "edges": [], "owner": "host", "path": "s.sh", "surface": "product"}}], "kind": "file"}},
+      {"op": "add", "path": "/nodes/file:st.sh", "value": {"definitions": [{"identity": "file:st.sh", "value": {"cost": "unknown", "edges": [], "owner": "host", "path": "st.sh", "surface": "product"}}], "kind": "file"}},
+      {"op": "add", "path": "/nodes/script:s", "value": {"definitions": [{"identity": "script:s", "value": {"actions": {"execute": {"argv": ["s.sh"], "operation": "script.s", "tool": "sh"}}, "id": "s", "path": "s.sh", "test_script": "st"}}], "kind": "script"}},
+      {"op": "add", "path": "/nodes/script:st", "value": {"definitions": [{"identity": "script:st", "value": {"actions": {"execute": {"argv": ["st.sh"], "operation": "script.st", "tool": "sh"}}, "id": "st", "path": "st.sh", "tests_for": "s"}}], "kind": "script"}},
+      {"op": "add", "path": "/nodes/test:st", "value": {"definitions": [{"identity": "script:st", "value": {"actions": {"execute": {"argv": ["st.sh"], "operation": "script.st", "tool": "sh"}}, "id": "st", "path": "st.sh", "tests_for": "s"}}], "kind": "test"}},
+      {"op": "add", "path": "/projects/owners/-", "value": "s"},
+      {"op": "add", "path": "/projects/owners/-", "value": "st"},
+      {"op": "add", "path": "/projects/scripts/-", "value": {"actions": {"execute": {"argv": ["s.sh"], "operation": "script.s", "tool": "sh"}}, "id": "s", "path": "s.sh", "test_script": "st"}},
+      {"op": "add", "path": "/projects/scripts/-", "value": {"actions": {"execute": {"argv": ["st.sh"], "operation": "script.st", "tool": "sh"}}, "id": "st", "path": "st.sh", "tests_for": "s"}}
+    ]
+  },
+  "script_artifact": {
+    "from": "project_artifact",
+    "patch": [
+      {"op": "replace", "path": "/config/artifacts/2/owner", "value": "s"}
+    ]
+  },
+  "absent_artifact": {
+    "from": "project_artifact",
+    "patch": [
+      {"op": "remove", "path": "/config/artifacts/2"}
+    ]
+  },
+  "groups": {
+    "from": "standard",
+    "patch": [
+      {"op": "replace", "path": "/active_test_aliases/project:t/0", "value": "test:opaque-group"},
+      {"op": "add", "path": "/active_test_aliases/project:t/-", "value": "test:t"},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "project:p", "kind": "test-execution", "to": "test:opaque-group"}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "project:t", "kind": "test-execution", "to": "test:t"}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "project:t", "kind": "test-execution", "to": "test:opaque-group"}},
+      {"op": "add", "path": "/filemap/test_costs/-", "value": {"cost": "unknown", "test": "opaque-group"}},
+      {"op": "add", "path": "/nodes/test:opaque-group", "value": {"definitions": [{"identity": "project:t", "value": {"actions": {"execute": {"argv": ["-c", "exit 0"], "operation": "execute.t", "tool": "sh"}, "second": {"argv": ["-c", "exit 0"], "operation": "execute.second", "tool": "sh"}}, "id": "t", "kind": "test", "lockfile": "t/Cargo.lock", "manifest": "t/Cargo.toml", "root": "t", "test_groups": {"opaque-group": "second", "t": "execute"}, "tests_for": "p"}}], "kind": "test"}},
+      {"op": "add", "path": "/nodes/project:t/definitions/0/value/test_groups", "value": {"opaque-group": "second", "t": "execute"}},
+      {"op": "add", "path": "/nodes/project:t/definitions/0/value/actions/second", "value": {"argv": ["-c", "exit 0"], "operation": "execute.second", "tool": "sh"}},
+      {"op": "add", "path": "/nodes/test:t/definitions/0/value/test_groups", "value": {"opaque-group": "second", "t": "execute"}},
+      {"op": "add", "path": "/nodes/test:t/definitions/0/value/actions/second", "value": {"argv": ["-c", "exit 0"], "operation": "execute.second", "tool": "sh"}},
+      {"op": "add", "path": "/projects/projects/1/test_groups", "value": {"opaque-group": "second", "t": "execute"}},
+      {"op": "add", "path": "/projects/projects/1/actions/second", "value": {"argv": ["-c", "exit 0"], "operation": "execute.second", "tool": "sh"}}
+    ]
+  },
+  "rebound": {
+    "from": "groups",
+    "patch": [
+      {"op": "replace", "path": "/nodes/project:t/definitions/0/value/test_groups/opaque-group", "value": "execute"},
+      {"op": "replace", "path": "/nodes/project:t/definitions/0/value/test_groups/t", "value": "second"},
+      {"op": "replace", "path": "/nodes/test:opaque-group/definitions/0/value/test_groups/opaque-group", "value": "execute"},
+      {"op": "replace", "path": "/nodes/test:opaque-group/definitions/0/value/test_groups/t", "value": "second"},
+      {"op": "replace", "path": "/nodes/test:t/definitions/0/value/test_groups/opaque-group", "value": "execute"},
+      {"op": "replace", "path": "/nodes/test:t/definitions/0/value/test_groups/t", "value": "second"},
+      {"op": "replace", "path": "/projects/projects/1/test_groups/opaque-group", "value": "execute"},
+      {"op": "replace", "path": "/projects/projects/1/test_groups/t", "value": "second"}
+    ]
+  },
+  "claims": {
+    "from": "standard",
+    "patch": [
+      {"op": "add", "path": "/active_test_aliases/script:st", "value": ["test:st"]},
+      {"op": "add", "path": "/claim_conflicts/execute.t", "value": ["execute.t"]},
+      {"op": "add", "path": "/claim_conflicts/script.st", "value": ["script.st"]},
+      {"op": "add", "path": "/filemap/execution_plans", "value": {"test:st": {"operations": ["script.st"], "output_limit_bytes": 4096, "timeout_seconds": 30}, "test:t": {"operations": ["execute.t"], "output_limit_bytes": 4096, "timeout_seconds": 30}}},
+      {"op": "add", "path": "/filemap/execution_scheduling", "value": {"claims": {"execute.t": {"outputs": [], "resources": ["one"]}, "script.st": {"outputs": [], "resources": []}}, "max_running": 2, "resources": ["one", "two"]}},
+      {"op": "add", "path": "/filemap/files/-", "value": {"cost": "unknown", "edges": [], "owner": "host", "path": "s.sh", "surface": "product"}},
+      {"op": "add", "path": "/filemap/files/-", "value": {"cost": "unknown", "edges": [], "owner": "host", "path": "st.sh", "surface": "product"}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "script:s", "kind": "test-execution", "to": "test:st"}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "project:t", "kind": "test-execution", "to": "test:t"}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "script:st", "kind": "test-execution", "to": "test:st"}},
+      {"op": "replace", "path": "/filemap/schema_version", "value": 2},
+      {"op": "add", "path": "/filemap/test_costs/-", "value": {"cost": "unknown", "test": "st"}},
+      {"op": "add", "path": "/nodes/file:s.sh", "value": {"definitions": [{"identity": "file:s.sh", "value": {"cost": "unknown", "edges": [], "owner": "host", "path": "s.sh", "surface": "product"}}], "kind": "file"}},
+      {"op": "add", "path": "/nodes/file:st.sh", "value": {"definitions": [{"identity": "file:st.sh", "value": {"cost": "unknown", "edges": [], "owner": "host", "path": "st.sh", "surface": "product"}}], "kind": "file"}},
+      {"op": "add", "path": "/nodes/script:s", "value": {"definitions": [{"identity": "script:s", "value": {"actions": {"execute": {"argv": ["s.sh"], "operation": "script.s", "tool": "sh"}}, "id": "s", "path": "s.sh", "test_script": "st"}}], "kind": "script"}},
+      {"op": "add", "path": "/nodes/script:st", "value": {"definitions": [{"identity": "script:st", "value": {"actions": {"execute": {"argv": ["st.sh"], "operation": "script.st", "tool": "sh"}}, "id": "st", "path": "st.sh", "tests_for": "s"}}], "kind": "script"}},
+      {"op": "add", "path": "/nodes/test:st", "value": {"definitions": [{"identity": "script:st", "value": {"actions": {"execute": {"argv": ["st.sh"], "operation": "script.st", "tool": "sh"}}, "id": "st", "path": "st.sh", "tests_for": "s"}}], "kind": "test"}},
+      {"op": "replace", "path": "/original_schemas/filemap/1", "value": 2},
+      {"op": "add", "path": "/projects/owners/-", "value": "s"},
+      {"op": "add", "path": "/projects/owners/-", "value": "st"},
+      {"op": "add", "path": "/projects/scripts/-", "value": {"actions": {"execute": {"argv": ["s.sh"], "operation": "script.s", "tool": "sh"}}, "id": "s", "path": "s.sh", "test_script": "st"}},
+      {"op": "add", "path": "/projects/scripts/-", "value": {"actions": {"execute": {"argv": ["st.sh"], "operation": "script.st", "tool": "sh"}}, "id": "st", "path": "st.sh", "tests_for": "s"}}
+    ]
+  },
+  "cap": {
+    "from": "claims",
+    "patch": [
+      {"op": "replace", "path": "/filemap/execution_scheduling/max_running", "value": 1}
+    ]
+  },
+  "resource": {
+    "from": "claims",
+    "patch": [
+      {"op": "replace", "path": "/filemap/execution_scheduling/claims/execute.t/resources/0", "value": "two"}
+    ]
+  },
+  "no_claims": {
+    "from": "claims",
+    "patch": [
+      {"op": "remove", "path": "/claim_conflicts/execute.t"},
+      {"op": "remove", "path": "/claim_conflicts/script.st"},
+      {"op": "remove", "path": "/filemap/execution_scheduling"}
+    ]
+  },
+  "output": {
+    "from": "claims",
+    "patch": [
+      {"op": "add", "path": "/filemap/execution_scheduling/claims/execute.t/outputs/-", "value": ".chrono-harness/state/"}
+    ]
+  },
+  "priority": {
+    "from": "standard",
+    "patch": [
+      {"op": "add", "path": "/active_test_aliases/script:st", "value": ["test:st"]},
+      {"op": "add", "path": "/claim_conflicts/execute.t", "value": ["execute.t"]},
+      {"op": "add", "path": "/claim_conflicts/script.st", "value": ["script.st"]},
+      {"op": "add", "path": "/filemap/execution_plans", "value": {"test:st": {"operations": ["script.st"], "output_limit_bytes": 4096, "timeout_seconds": 30}, "test:t": {"operations": ["execute.t"], "output_limit_bytes": 4096, "timeout_seconds": 30}}},
+      {"op": "add", "path": "/filemap/execution_scheduling", "value": {"claims": {"execute.t": {"outputs": [], "resources": []}, "script.st": {"outputs": [], "resources": []}}, "max_running": 2, "priority": ["script.st", "execute.t"], "resources": []}},
+      {"op": "add", "path": "/filemap/files/-", "value": {"cost": "unknown", "edges": [], "owner": "host", "path": "s.sh", "surface": "product"}},
+      {"op": "add", "path": "/filemap/files/-", "value": {"cost": "unknown", "edges": [], "owner": "host", "path": "st.sh", "surface": "product"}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "script:s", "kind": "test-execution", "to": "test:st"}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "project:t", "kind": "test-execution", "to": "test:t"}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "script:st", "kind": "test-execution", "to": "test:st"}},
+      {"op": "replace", "path": "/filemap/schema_version", "value": 2},
+      {"op": "add", "path": "/filemap/test_costs/-", "value": {"cost": "unknown", "test": "st"}},
+      {"op": "add", "path": "/nodes/file:s.sh", "value": {"definitions": [{"identity": "file:s.sh", "value": {"cost": "unknown", "edges": [], "owner": "host", "path": "s.sh", "surface": "product"}}], "kind": "file"}},
+      {"op": "add", "path": "/nodes/file:st.sh", "value": {"definitions": [{"identity": "file:st.sh", "value": {"cost": "unknown", "edges": [], "owner": "host", "path": "st.sh", "surface": "product"}}], "kind": "file"}},
+      {"op": "add", "path": "/nodes/script:s", "value": {"definitions": [{"identity": "script:s", "value": {"actions": {"execute": {"argv": ["s.sh"], "operation": "script.s", "tool": "sh"}}, "id": "s", "path": "s.sh", "test_script": "st"}}], "kind": "script"}},
+      {"op": "add", "path": "/nodes/script:st", "value": {"definitions": [{"identity": "script:st", "value": {"actions": {"execute": {"argv": ["st.sh"], "operation": "script.st", "tool": "sh"}}, "id": "st", "path": "st.sh", "tests_for": "s"}}], "kind": "script"}},
+      {"op": "add", "path": "/nodes/test:st", "value": {"definitions": [{"identity": "script:st", "value": {"actions": {"execute": {"argv": ["st.sh"], "operation": "script.st", "tool": "sh"}}, "id": "st", "path": "st.sh", "tests_for": "s"}}], "kind": "test"}},
+      {"op": "replace", "path": "/original_schemas/filemap/1", "value": 2},
+      {"op": "add", "path": "/projects/owners/-", "value": "s"},
+      {"op": "add", "path": "/projects/owners/-", "value": "st"},
+      {"op": "add", "path": "/projects/scripts/-", "value": {"actions": {"execute": {"argv": ["s.sh"], "operation": "script.s", "tool": "sh"}}, "id": "s", "path": "s.sh", "test_script": "st"}},
+      {"op": "add", "path": "/projects/scripts/-", "value": {"actions": {"execute": {"argv": ["st.sh"], "operation": "script.st", "tool": "sh"}}, "id": "st", "path": "st.sh", "tests_for": "s"}}
+    ]
+  },
+  "reordered_priority": {
+    "from": "priority",
+    "patch": [
+      {"op": "replace", "path": "/filemap/execution_scheduling/priority/0", "value": "execute.t"},
+      {"op": "replace", "path": "/filemap/execution_scheduling/priority/1", "value": "script.st"}
+    ]
+  },
+  "reduced_priority": {
+    "from": "priority",
+    "patch": [
+      {"op": "replace", "path": "/filemap/execution_scheduling/priority/0", "value": "execute.t"},
+      {"op": "remove", "path": "/filemap/execution_scheduling/priority/1"}
+    ]
+  },
+  "empty_priority": {
+    "from": "priority",
+    "patch": [
+      {"op": "remove", "path": "/filemap/execution_scheduling/priority/1"},
+      {"op": "remove", "path": "/filemap/execution_scheduling/priority/0"}
+    ]
+  },
+  "absent_priority": {
+    "from": "priority",
+    "patch": [
+      {"op": "remove", "path": "/filemap/execution_scheduling/priority"}
+    ]
+  },
+  "shared_output": {
+    "from": "standard",
+    "patch": [
+      {"op": "add", "path": "/active_test_aliases/script:st", "value": ["test:st"]},
+      {"op": "add", "path": "/claim_conflicts/execute.t", "value": ["execute.t", "script.st"]},
+      {"op": "add", "path": "/claim_conflicts/script.st", "value": ["execute.t", "script.st"]},
+      {"op": "add", "path": "/config/artifacts/-", "value": {"kind": "output", "owner": "p", "path": "out/", "tracked": false}},
+      {"op": "add", "path": "/filemap/execution_plans", "value": {"test:st": {"operations": ["script.st"], "output_limit_bytes": 4096, "timeout_seconds": 30}, "test:t": {"operations": ["execute.t"], "output_limit_bytes": 4096, "timeout_seconds": 30}}},
+      {"op": "add", "path": "/filemap/execution_scheduling", "value": {"claims": {"execute.t": {"outputs": ["out/"], "resources": ["one"]}, "script.st": {"outputs": ["out/"], "resources": ["two"]}}, "max_running": 2, "resources": ["one", "two"]}},
+      {"op": "add", "path": "/filemap/files/-", "value": {"cost": "unknown", "edges": [], "owner": "host", "path": "s.sh", "surface": "product"}},
+      {"op": "add", "path": "/filemap/files/-", "value": {"cost": "unknown", "edges": [], "owner": "host", "path": "st.sh", "surface": "product"}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "script:s", "kind": "test-execution", "to": "test:st"}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "project:t", "kind": "test-execution", "to": "test:t"}},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "script:st", "kind": "test-execution", "to": "test:st"}},
+      {"op": "replace", "path": "/filemap/schema_version", "value": 2},
+      {"op": "add", "path": "/filemap/test_costs/-", "value": {"cost": "unknown", "test": "st"}},
+      {"op": "add", "path": "/nodes/file:s.sh", "value": {"definitions": [{"identity": "file:s.sh", "value": {"cost": "unknown", "edges": [], "owner": "host", "path": "s.sh", "surface": "product"}}], "kind": "file"}},
+      {"op": "add", "path": "/nodes/file:st.sh", "value": {"definitions": [{"identity": "file:st.sh", "value": {"cost": "unknown", "edges": [], "owner": "host", "path": "st.sh", "surface": "product"}}], "kind": "file"}},
+      {"op": "add", "path": "/nodes/script:s", "value": {"definitions": [{"identity": "script:s", "value": {"actions": {"execute": {"argv": ["s.sh"], "operation": "script.s", "tool": "sh"}}, "id": "s", "path": "s.sh", "test_script": "st"}}], "kind": "script"}},
+      {"op": "add", "path": "/nodes/script:st", "value": {"definitions": [{"identity": "script:st", "value": {"actions": {"execute": {"argv": ["st.sh"], "operation": "script.st", "tool": "sh"}}, "id": "st", "path": "st.sh", "tests_for": "s"}}], "kind": "script"}},
+      {"op": "add", "path": "/nodes/test:st", "value": {"definitions": [{"identity": "script:st", "value": {"actions": {"execute": {"argv": ["st.sh"], "operation": "script.st", "tool": "sh"}}, "id": "st", "path": "st.sh", "tests_for": "s"}}], "kind": "test"}},
+      {"op": "replace", "path": "/original_schemas/filemap/1", "value": 2},
+      {"op": "add", "path": "/projects/owners/-", "value": "s"},
+      {"op": "add", "path": "/projects/owners/-", "value": "st"},
+      {"op": "add", "path": "/projects/scripts/-", "value": {"actions": {"execute": {"argv": ["s.sh"], "operation": "script.s", "tool": "sh"}}, "id": "s", "path": "s.sh", "test_script": "st"}},
+      {"op": "add", "path": "/projects/scripts/-", "value": {"actions": {"execute": {"argv": ["st.sh"], "operation": "script.st", "tool": "sh"}}, "id": "st", "path": "st.sh", "tests_for": "s"}}
+    ]
+  },
+  "shared_resource": {
+    "from": "shared_output",
+    "patch": [
+      {"op": "replace", "path": "/filemap/execution_scheduling/claims/execute.t/resources/0", "value": "two"}
+    ]
+  },
+  "reassigned_artifact": {
+    "from": "shared_output",
+    "patch": [
+      {"op": "replace", "path": "/config/artifacts/2/owner", "value": "s"}
+    ]
+  },
+  "rust_projects": {
+    "from": "standard",
+    "patch": [
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "project:t", "kind": "test-execution", "to": "test:t"}},
+      {"op": "add", "path": "/nodes/project:p/definitions/0/value/language", "value": "rust"},
+      {"op": "add", "path": "/nodes/project:t/definitions/0/value/language", "value": "rust"},
+      {"op": "add", "path": "/nodes/test:t/definitions/0/value/language", "value": "rust"},
+      {"op": "replace", "path": "/original_schemas/projects/1", "value": 2},
+      {"op": "add", "path": "/projects/projects/0/language", "value": "rust"},
+      {"op": "add", "path": "/projects/projects/1/language", "value": "rust"},
+      {"op": "replace", "path": "/projects/schema_version", "value": 2}
+    ]
+  },
+  "python_test_project": {
+    "from": "rust_projects",
+    "patch": [
+      {"op": "replace", "path": "/nodes/project:t/definitions/0/value/language", "value": "python"},
+      {"op": "replace", "path": "/nodes/test:t/definitions/0/value/language", "value": "python"},
+      {"op": "replace", "path": "/projects/projects/1/language", "value": "python"}
+    ]
+  },
+  "rust_scripts": {
+    "from": "standard",
+    "patch": [
+      {"op": "remove", "path": "/active_test_aliases/project:t"},
+      {"op": "add", "path": "/active_test_aliases/script:t", "value": ["test:t"]},
+      {"op": "remove", "path": "/filemap/files/0/edges/0"},
+      {"op": "replace", "path": "/filemap/files/0/owner", "value": "p"},
+      {"op": "replace", "path": "/filemap/files/1/owner", "value": "t"},
+      {"op": "replace", "path": "/filemap/project_edges/0/from", "value": "script:p"},
+      {"op": "add", "path": "/filemap/project_edges/-", "value": {"from": "script:t", "kind": "test-execution", "to": "test:t"}},
+      {"op": "remove", "path": "/nodes/project:p"},
+      {"op": "remove", "path": "/nodes/project:t"},
+      {"op": "add", "path": "/nodes/script:p", "value": {"definitions": [{"identity": "script:p", "value": {"actions": {"execute": {"argv": ["-c", "exit 0"], "operation": "execute.p", "tool": "sh"}}, "id": "p", "language": "rust", "path": "src.bin", "test_script": "t"}}], "kind": "script"}},
+      {"op": "add", "path": "/nodes/script:t", "value": {"definitions": [{"identity": "script:t", "value": {"actions": {"execute": {"argv": ["-c", "exit 0"], "operation": "execute.t", "tool": "sh"}}, "id": "t", "language": "rust", "path": "doc.txt", "tests_for": "p"}}], "kind": "script"}},
+      {"op": "replace", "path": "/nodes/file:doc.txt/definitions/0/value/owner", "value": "t"},
+      {"op": "remove", "path": "/nodes/file:src.bin/definitions/0/value/edges/0"},
+      {"op": "replace", "path": "/nodes/file:src.bin/definitions/0/value/owner", "value": "p"},
+      {"op": "replace", "path": "/nodes/test:t/definitions/0/identity", "value": "script:t"},
+      {"op": "remove", "path": "/nodes/test:t/definitions/0/value/kind"},
+      {"op": "remove", "path": "/nodes/test:t/definitions/0/value/lockfile"},
+      {"op": "remove", "path": "/nodes/test:t/definitions/0/value/manifest"},
+      {"op": "remove", "path": "/nodes/test:t/definitions/0/value/root"},
+      {"op": "add", "path": "/nodes/test:t/definitions/0/value/language", "value": "rust"},
+      {"op": "add", "path": "/nodes/test:t/definitions/0/value/path", "value": "doc.txt"},
+      {"op": "replace", "path": "/original_schemas/projects/1", "value": 2},
+      {"op": "remove", "path": "/projects/projects/1"},
+      {"op": "remove", "path": "/projects/projects/0"},
+      {"op": "replace", "path": "/projects/schema_version", "value": 2},
+      {"op": "add", "path": "/projects/scripts/-", "value": {"actions": {"execute": {"argv": ["-c", "exit 0"], "operation": "execute.p", "tool": "sh"}}, "id": "p", "language": "rust", "path": "src.bin", "test_script": "t"}},
+      {"op": "add", "path": "/projects/scripts/-", "value": {"actions": {"execute": {"argv": ["-c", "exit 0"], "operation": "execute.t", "tool": "sh"}}, "id": "t", "language": "rust", "path": "doc.txt", "tests_for": "p"}}
+    ]
+  },
+  "python_test_script": {
+    "from": "rust_scripts",
+    "patch": [
+      {"op": "replace", "path": "/nodes/script:t/definitions/0/value/language", "value": "python"},
+      {"op": "replace", "path": "/nodes/test:t/definitions/0/value/language", "value": "python"},
+      {"op": "replace", "path": "/projects/scripts/1/language", "value": "python"}
+    ]
+  }
+}

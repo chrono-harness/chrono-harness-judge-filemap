@@ -9,9 +9,10 @@ use chrono_harness::{
     facts,
     wire::{Delta, Finding, Request, Response, Status, append_finding},
 };
-use chrono_judge_registration::{NodeKind, Registrations};
+pub mod registration;
 use graph::{Closure, Edge, EdgeKind, Origin, Seed, UnionEdge};
 pub use records::{Change, Record, RecordPair};
+use registration::{Endpoint, NodeKind, NodeView, Views};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -89,7 +90,7 @@ pub fn impact_summary(input: impl std::io::Read) -> Result<Value, serde_json::Er
 
 /// Read explicit edges. Consistency adapters may consume this inventory; it
 /// never discovers an input or creates an authoritative dependency.
-pub fn edges(r: &Registrations) -> BTreeSet<Edge> {
+pub fn edges(r: &Endpoint) -> BTreeSet<Edge> {
     let mut out = BTreeSet::new();
     let mut add = |from: &str, e: &Value| {
         out.insert(Edge {
@@ -111,46 +112,15 @@ pub fn edges(r: &Registrations) -> BTreeSet<Edge> {
 /// Pure declaration-level impact. External input records are compared, not retained input bytes.
 /// Callers must supply factual, complete DELTA; the judge entrypoint binds it to fixed Git objects.
 pub fn produce(
-    base: &Registrations,
-    candidate: &Registrations,
+    views: &Views,
     delta: &[Delta],
     classification: Result<Value, String>,
 ) -> (Impact, Vec<Finding>) {
-    produce_environment(base, candidate, delta, None, classification)
-}
-/// Effective-input impact for validated retained endpoint facts. Declarations and
-/// effective values use the same explicit environment nodes; no edges are inferred.
-pub fn produce_with_inputs(
-    base: &Registrations,
-    candidate: &Registrations,
-    delta: &[Delta],
-    effective_inputs: &Value,
-    classification: Result<Value, String>,
-) -> Result<(Impact, Vec<Finding>), String> {
-    let environments = chrono_judge_registration::inputs::effective_environments(
-        effective_inputs,
-        base,
-        candidate,
-    )?;
-    Ok(produce_environment(
-        base,
-        candidate,
-        delta,
-        environments.as_ref(),
-        classification,
-    ))
-}
-fn produce_environment(
-    base: &Registrations,
-    candidate: &Registrations,
-    delta: &[Delta],
-    environments: Option<&[BTreeMap<String, String>; 2]>,
-    classification: Result<Value, String>,
-) -> (Impact, Vec<Finding>) {
-    let an = base.node_data();
-    let bn = candidate.node_data();
-    let a = records::inventory(base, &an, environments.map(|p| &p[0]));
-    let b = records::inventory(candidate, &bn, environments.map(|p| &p[1]));
+    let (base, candidate) = (&views.base, &views.candidate);
+    let (an, bn) = (&base.nodes, &candidate.nodes);
+    let environments = views.environments.as_ref();
+    let a = records::inventory(base, an, environments.map(|p| &p[0]));
+    let b = records::inventory(candidate, bn, environments.map(|p| &p[1]));
     let mut findings = vec![];
     let workflow = match classification
         .and_then(|changes| workflow::select(base, candidate, delta, [&a, &b], changes))
@@ -253,7 +223,7 @@ fn produce_environment(
     }
     let seeds: Vec<_> = seeds.into_iter().collect();
     let closure = graph::closure(&edges, &seeds);
-    let definitions = |view: Option<&chrono_judge_registration::NodeView<'_>>| {
+    let definitions = |view: Option<&NodeView>| {
         view.into_iter()
             .flat_map(|v| &v.definitions)
             .map(|d| NodeDefinition {
@@ -279,7 +249,7 @@ fn produce_environment(
         .collect();
     let mut historical_context = vec![];
     let mut historical_ambiguities = vec![];
-    for (endpoint, inventory) in [("base", &an), ("candidate", &bn)] {
+    for (endpoint, inventory) in [("base", an), ("candidate", bn)] {
         for (node, view) in inventory {
             if view.definitions.len() <= 1 {
                 continue;
@@ -294,13 +264,7 @@ fn produce_environment(
                     .collect(),
             };
             if let Some(causes) = closure.reached.get(node) {
-                if endpoint == "base"
-                    && chrono_judge_registration::ambiguity_repaired(
-                        candidate,
-                        node,
-                        &ambiguity.definitions,
-                    )
-                {
+                if endpoint == "base" && views.repaired.contains(node) {
                     historical_ambiguities.push(ambiguity);
                     continue;
                 }
@@ -330,7 +294,7 @@ fn produce_environment(
         }
     }
     for e in &edges {
-        for (endpoint, inventory) in [("base", &an), ("candidate", &bn)] {
+        for (endpoint, inventory) in [("base", an), ("candidate", bn)] {
             if matches!(
                 (e.origin, endpoint),
                 (Origin::Base, "candidate") | (Origin::Candidate, "base")
@@ -476,28 +440,9 @@ fn produce_environment(
 /// Fixed semantic documents are consumed through the same full impact producer.
 /// Declaration-level scheduling impact, before external SDK snapshots exist.
 /// Final admission continues to use produce_for_request with actual validated inputs.
-pub fn produce_for_endpoints(
-    root: &std::path::Path,
-    base: &str,
-    candidate: &str,
-    delta: &[Delta],
-    old: &Registrations,
-    current: &Registrations,
-    reader: &facts::Reader,
-) -> Result<(Impact, Vec<Finding>), String> {
-    let changes = classification::for_endpoints(
-        root,
-        [base, candidate],
-        [old, current],
-        delta,
-        reader,
-        None,
-    )?;
-    Ok(produce(old, current, delta, changes))
-}
 /// Query declaration-level test obligations from two fixed commits of this host.
 pub fn endpoint_tests(root: &std::path::Path, input: impl std::io::Read) -> Result<Value, String> {
-    #[derive(Deserialize)]
+    #[derive(Deserialize, Serialize)]
     #[serde(deny_unknown_fields)]
     struct Query {
         config: String,
@@ -510,44 +455,39 @@ pub fn endpoint_tests(root: &std::path::Path, input: impl std::io::Read) -> Resu
     facts::full_oid(&query.base)?;
     facts::full_oid(&query.candidate)?;
     let reader = facts::Reader::for_config(root, &query.config)?;
-    let before = reader.registry_values(root, &query.base, &query.config)?;
-    let after = reader.registry_values(root, &query.candidate, &query.config)?;
-    let (old, current) = if query.scheduling {
-        let (old, current, _) = chrono_judge_registration::interpret_scheduling_with_reader(
-            &reader,
-            root,
-            &query.base,
-            &query.candidate,
-            &query.config,
-            before,
-            after,
-        )?;
-        (old, current)
-    } else {
-        (
-            Registrations::load(&before, &query.config)?,
-            Registrations::load(&after, &query.config)?,
-        )
-    };
+    let reply = registration::read(
+        root,
+        &query.config,
+        &reader,
+        json!({"mode":"endpoints","base":query.base,"candidate":query.candidate,"config":query.config,"scheduling":query.scheduling}),
+        [&query.base, &query.candidate],
+        None,
+        None,
+    )?;
+    let views = reply.views?;
     let delta = facts::delta(
         &reader.tree(root, &query.base)?,
         &reader.tree(root, &query.candidate)?,
     );
-    let (impact, findings) = produce_for_endpoints(
+    let changes = classification::for_endpoints(
         root,
-        &query.base,
-        &query.candidate,
+        [&query.base, &query.candidate],
+        [&views.base, &views.candidate],
         &delta,
-        &old,
-        &current,
         &reader,
+        None,
     )?;
+    let (impact, findings) = produce(&views, &delta, changes);
     let mut result =
         json!({"tests":impact.tests,"retired_tests":impact.retired_tests,"findings":findings});
     if query.scheduling {
         result["reached"] = json!(impact.closure.reached.keys().collect::<Vec<_>>());
         result["changed_paths"] = json!(delta.iter().map(|item| &item.path).collect::<Vec<_>>());
-        result["git_facts"] = reader.observation();
+        result["git_facts"] = registration::with_registration_facts(
+            reader.observation(),
+            reply.position,
+            reply.git_facts,
+        )?;
     }
     Ok(result)
 }
@@ -558,13 +498,13 @@ pub fn collection_tests(
     root: &std::path::Path,
     input: impl std::io::Read,
 ) -> Result<Value, String> {
-    #[derive(Deserialize)]
+    #[derive(Deserialize, Serialize)]
     #[serde(deny_unknown_fields)]
     struct MigrationInputs {
         units: Vec<String>,
         originals: chrono_harness::units::FullManifest,
     }
-    #[derive(Deserialize)]
+    #[derive(Deserialize, Serialize)]
     #[serde(deny_unknown_fields)]
     struct Query {
         request: Request,
@@ -581,50 +521,66 @@ pub fn collection_tests(
         return Err("FILEMAP collection requires this checkout and a collection scope".into());
     }
     let reader = facts::Reader::for_request(req)?;
-    let (old, current, _) =
-        chrono_judge_registration::views_for_collection_inputs_with(req, &reader, &|units| {
-            let bound = query
-                .migration
-                .as_ref()
-                .filter(|m| m.units == units)
-                .ok_or("missing original migration inputs for the selected units")?;
-            Ok(bound.originals.clone())
-        })?;
-    let inputs = chrono_judge_registration::inputs::validate(req, &old, &current)?;
-    let (impact, findings) = produce_for_request(req, &old, &current, &reader, &inputs)?;
+    let reply = registration::read(
+        root,
+        &req.config_path,
+        &reader,
+        json!({"mode":"collection","request":req,"migration":query.migration}),
+        [&req.base.commit, &req.candidate.commit],
+        Some(&req.request_id),
+        req.observations["environment"]["effective"]["PATH"].as_str(),
+    )?;
+    let views = reply.views?;
+    let (impact, findings) = produce_for_request(req, &views, &reader)?;
+    let git_facts = registration::with_registration_facts(
+        reader.observation(),
+        reply.position,
+        reply.git_facts,
+    )?;
     Ok(
         json!({"tests":impact.tests,"retired_tests":impact.retired_tests,"findings":findings,
-        "reached":impact.closure.reached.keys().collect::<Vec<_>>(), "git_facts":reader.observation()}),
+        "reached":impact.closure.reached.keys().collect::<Vec<_>>(), "git_facts":git_facts}),
     )
 }
 
-pub fn produce_for_request(
+fn produce_for_request(
     req: &Request,
-    old: &Registrations,
-    current: &Registrations,
+    views: &Views,
     reader: &facts::Reader,
-    inputs: &Value,
 ) -> Result<(Impact, Vec<Finding>), String> {
-    let search_path = req.observations["environment"]["effective"]["PATH"].as_str();
+    let path = req.observations["environment"]["effective"]["PATH"].as_str();
     let changes = classification::for_endpoints(
         &req.candidate.root,
         [&req.base.commit, &req.candidate.commit],
-        [old, current],
+        [&views.base, &views.candidate],
         &req.delta,
         reader,
-        search_path,
+        path,
     )?;
-    produce_with_inputs(old, current, &req.delta, inputs, changes)
+    if let Some(error) = &views.environment_error {
+        return Err(error.clone());
+    }
+    Ok(produce(views, &req.delta, changes))
 }
 pub fn judge(req: &Request) -> Response {
     let mut response = req.response(Status::Pass);
     let reader = facts::Reader::for_request(req);
-    let result = reader
+    let mut remote_facts = None;
+    let mut result = reader
         .as_ref()
         .map_err(Clone::clone)
-        .and_then(|reader| evaluate(req, reader));
+        .and_then(|reader| evaluate(req, reader, &mut remote_facts));
     if let Ok(reader) = &reader {
         reader.record(&mut response);
+        if let Some((prefix, registered)) = remote_facts {
+            match registration::with_registration_facts(reader.observation(), prefix, registered) {
+                Ok(value) if !value.is_null() => {
+                    response.outputs.insert("git_facts".into(), value);
+                }
+                Ok(_) => {}
+                Err(error) => result = Err(error),
+            }
+        }
     }
     match result {
         Ok((impact, findings, view)) => {
@@ -664,6 +620,7 @@ pub fn judge(req: &Request) -> Response {
 fn evaluate(
     req: &Request,
     reader: &facts::Reader,
+    remote_facts: &mut Option<(usize, Option<Value>)>,
 ) -> Result<(Impact, Vec<Finding>, Value), String> {
     req.validate()?;
     let root = &req.candidate.root;
@@ -679,8 +636,21 @@ fn evaluate(
     {
         return Err("DELTA differs from fixed endpoints".into());
     }
-    let (a, b, view) = chrono_judge_registration::views_with_reader(req, reader)?;
-    let inputs = chrono_judge_registration::inputs::validate(req, &a, &b)?;
-    let (impact, findings) = produce_for_request(req, &a, &b, reader, &inputs)?;
+    let reply = registration::read(
+        root,
+        &req.config_path,
+        reader,
+        json!({"mode":"request","request":req}),
+        [&req.base.commit, &req.candidate.commit],
+        Some(&req.request_id),
+        req.observations["environment"]["effective"]["PATH"].as_str(),
+    )?;
+    *remote_facts = Some((reply.position, reply.git_facts));
+    let mut views = reply.views?;
+    let view = views
+        .registration_view
+        .take()
+        .ok_or("missing registration view")?;
+    let (impact, findings) = produce_for_request(req, &views, reader)?;
     Ok((impact, findings, view))
 }

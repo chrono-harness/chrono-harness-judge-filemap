@@ -1,6 +1,6 @@
 //! Typed edge ordering, exact name lookup and indexed FIFO graph traversal.
 #[cfg(not(verus_keep_ghost))]
-pub use chrono_judge_registration::NodeKind;
+pub use crate::registration::NodeKind;
 use core::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 #[cfg(not(verus_keep_ghost))]
