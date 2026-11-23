@@ -4,13 +4,16 @@ fn main() -> std::process::ExitCode {
     let mut args = std::env::args_os().skip(1);
     let name = args.next();
     let query = name.as_deref().and_then(std::ffi::OsStr::to_str);
-    if let Some(operation @ ("impact-summary" | "endpoint-tests")) = query {
+    if let Some(
+        operation @ ("impact-summary" | "endpoint-tests" | "closure-v1" | "collection-tests-v1"),
+    ) = query
+    {
         if args.next().is_some() {
             match operation {
                 "impact-summary" => {
                     eprintln!("E_USAGE: impact-summary reads one FILEMAP impact from stdin")
                 }
-                _ => eprintln!("E_USAGE: endpoint-tests reads one endpoint query from stdin"),
+                _ => eprintln!("E_USAGE: {operation} reads one query from stdin"),
             }
             return 2.into();
         }
@@ -19,6 +22,10 @@ fn main() -> std::process::ExitCode {
             "impact-summary" => {
                 chrono_judge_filemap::impact_summary(input).map_err(|e| e.to_string())
             }
+            "closure-v1" => chrono_judge_filemap::graph::query_closure(input),
+            "collection-tests-v1" => std::env::current_dir()
+                .map_err(|e| e.to_string())
+                .and_then(|root| chrono_judge_filemap::collection_tests(&root, input)),
             _ => std::env::current_dir()
                 .map_err(|e| e.to_string())
                 .and_then(|root| chrono_judge_filemap::endpoint_tests(&root, input)),

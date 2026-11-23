@@ -503,19 +503,32 @@ pub fn endpoint_tests(root: &std::path::Path, input: impl std::io::Read) -> Resu
         config: String,
         base: String,
         candidate: String,
+        #[serde(default)]
+        scheduling: bool,
     }
     let query: Query = serde_json::from_reader(input).map_err(|error| error.to_string())?;
     facts::full_oid(&query.base)?;
     facts::full_oid(&query.candidate)?;
     let reader = facts::Reader::for_config(root, &query.config)?;
-    let old = Registrations::load(
-        &reader.registry_values(root, &query.base, &query.config)?,
-        &query.config,
-    )?;
-    let current = Registrations::load(
-        &reader.registry_values(root, &query.candidate, &query.config)?,
-        &query.config,
-    )?;
+    let before = reader.registry_values(root, &query.base, &query.config)?;
+    let after = reader.registry_values(root, &query.candidate, &query.config)?;
+    let (old, current) = if query.scheduling {
+        let (old, current, _) = chrono_judge_registration::interpret_scheduling_with_reader(
+            &reader,
+            root,
+            &query.base,
+            &query.candidate,
+            &query.config,
+            before,
+            after,
+        )?;
+        (old, current)
+    } else {
+        (
+            Registrations::load(&before, &query.config)?,
+            Registrations::load(&after, &query.config)?,
+        )
+    };
     let delta = facts::delta(
         &reader.tree(root, &query.base)?,
         &reader.tree(root, &query.candidate)?,
@@ -529,7 +542,60 @@ pub fn endpoint_tests(root: &std::path::Path, input: impl std::io::Read) -> Resu
         &current,
         &reader,
     )?;
-    Ok(json!({"tests":impact.tests,"retired_tests":impact.retired_tests,"findings":findings}))
+    let mut result =
+        json!({"tests":impact.tests,"retired_tests":impact.retired_tests,"findings":findings});
+    if query.scheduling {
+        result["reached"] = json!(impact.closure.reached.keys().collect::<Vec<_>>());
+        result["changed_paths"] = json!(delta.iter().map(|item| &item.path).collect::<Vec<_>>());
+        result["git_facts"] = reader.observation();
+    }
+    Ok(result)
+}
+
+/// Scheduling projects fixed endpoints. Collection projects the caller's validated
+/// registration view and effective inputs, including historical conversion.
+pub fn collection_tests(
+    root: &std::path::Path,
+    input: impl std::io::Read,
+) -> Result<Value, String> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct MigrationInputs {
+        units: Vec<String>,
+        originals: chrono_harness::units::FullManifest,
+    }
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Query {
+        request: Request,
+        migration: Option<MigrationInputs>,
+    }
+    let query: Query = serde_json::from_reader(input).map_err(|e| e.to_string())?;
+    let req = &query.request;
+    if req.candidate.root != root
+        || !matches!(
+            req.scope,
+            Some(chrono_harness::units::Scope::Collect { .. })
+        )
+    {
+        return Err("FILEMAP collection requires this checkout and a collection scope".into());
+    }
+    let reader = facts::Reader::for_request(req)?;
+    let (old, current, _) =
+        chrono_judge_registration::views_for_collection_inputs_with(req, &reader, &|units| {
+            let bound = query
+                .migration
+                .as_ref()
+                .filter(|m| m.units == units)
+                .ok_or("missing original migration inputs for the selected units")?;
+            Ok(bound.originals.clone())
+        })?;
+    let inputs = chrono_judge_registration::inputs::validate(req, &old, &current)?;
+    let (impact, findings) = produce_for_request(req, &old, &current, &reader, &inputs)?;
+    Ok(
+        json!({"tests":impact.tests,"retired_tests":impact.retired_tests,"findings":findings,
+        "reached":impact.closure.reached.keys().collect::<Vec<_>>(), "git_facts":reader.observation()}),
+    )
 }
 
 pub fn produce_for_request(

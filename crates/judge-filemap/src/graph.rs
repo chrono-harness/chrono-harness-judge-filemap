@@ -241,3 +241,32 @@ impl Closure {
         self.predecessors.get(seed)?.witness(node)
     }
 }
+
+/// Compute both endpoint origins and the traversed subgraph for scoped CI replay.
+pub fn query_closure(input: impl std::io::Read) -> Result<serde_json::Value, String> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Input {
+        base: BTreeSet<Edge>,
+        candidate: BTreeSet<Edge>,
+        seeds: Vec<Seed>,
+        reachable_only: bool,
+    }
+    let request: Input = serde_json::from_reader(input).map_err(|e| e.to_string())?;
+    let edges = union(&request.base, &request.candidate);
+    let result = closure(&edges, &request.seeds);
+    let selected = result.selected_tests();
+    let reached: Vec<_> = result.reached.keys().collect();
+    let mut response = serde_json::json!({"selected_tests":selected,"reached":reached});
+    if request.reachable_only {
+        let reachable: Vec<_> = edges
+            .iter()
+            .filter(|edge| result.reached.contains_key(&edge.edge.from))
+            .collect();
+        response["edges"] = serde_json::json!(reachable);
+    } else {
+        response["edges"] = serde_json::json!(edges);
+        response["closure"] = serde_json::json!(result);
+    }
+    Ok(response)
+}

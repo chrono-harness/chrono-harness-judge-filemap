@@ -1732,3 +1732,35 @@ fn endpoint_tests_uses_fixed_trees_and_returns_blocking_findings_to_the_caller()
     );
     assert!(chrono_judge_filemap::endpoint_tests(root, query("dev").as_slice()).is_err());
 }
+
+#[test]
+fn closure_query_keeps_removed_edges_cycles_and_only_reachable_causes_for_replay() {
+    let removed = edge("a", "compile", "b");
+    let back = edge("b", "runtime-input", "a");
+    let test = edge("b", "test-execution", "test:t");
+    let other = edge("x", "runtime-input", "y");
+    let mut request = json!({"base":[removed,back,other],"candidate":[back,test,other],
+        "seeds":[{"id":"first","node":"a","reference":"a","reason":"change"}],"reachable_only":true});
+    let query = |request: &serde_json::Value| {
+        graph::query_closure(serde_json::to_vec(request).unwrap().as_slice())
+    };
+    let replay = query(&request).unwrap();
+    assert_eq!(replay["reached"], json!(["a", "b", "test:t"]));
+    assert_eq!(replay["selected_tests"], json!(["test:t"]));
+    assert!(replay.get("closure").is_none());
+    let mut expected = vec![];
+    for (mut edge, origin) in [(removed, "base"), (back, "both"), (test, "candidate")] {
+        edge["origin"] = json!(origin);
+        expected.push(edge);
+    }
+    let edges = replay["edges"].as_array().unwrap();
+    assert_eq!(edges.len(), expected.len());
+    assert!(expected.iter().all(|edge| edges.contains(edge)));
+    request["reachable_only"] = json!(false);
+    let full = query(&request).unwrap();
+    assert_eq!(full["edges"].as_array().unwrap().len(), 4);
+    assert_eq!(full["closure"]["reached"]["test:t"], json!(["first"]));
+    assert_eq!(full["closure"]["traversed"].as_array().unwrap().len(), 3);
+    request["candidate"][0]["kind"] = json!("unknown");
+    assert!(query(&request).is_err());
+}
