@@ -1,22 +1,20 @@
 //! Typed edge ordering, exact name lookup and indexed FIFO graph traversal.
 #[cfg(not(verus_keep_ghost))]
-use chrono_harness::verus;
-#[cfg(not(verus_keep_ghost))]
 pub use chrono_judge_registration::NodeKind;
 use core::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
+#[cfg(not(verus_keep_ghost))]
+use vstd::prelude::verus;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 #[cfg(verus_keep_ghost)]
 use vstd::string::StringSliceAdditionalSpecFns;
 
+#[path = "graph_key.rs"]
+mod graph_key;
+pub use graph_key::compare_bytes;
 #[cfg(verus_keep_ghost)]
-pub extern crate chrono_identifiers as identifiers;
-#[cfg(not(verus_keep_ghost))]
-use chrono_harness::verified_identifiers as identifiers;
-pub use identifiers::compare_bytes;
-#[cfg(verus_keep_ghost)]
-pub use identifiers::{
+pub use graph_key::{
     byte_lt, byte_lt_asymmetric, byte_lt_strict, byte_lt_transitive, byte_prefix, byte_trichotomy,
 };
 
