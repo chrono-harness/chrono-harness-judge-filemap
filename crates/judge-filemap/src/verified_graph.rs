@@ -1,14 +1,10 @@
 //! Typed edge ordering, exact name lookup and indexed FIFO graph traversal.
 #[cfg(not(verus_keep_ghost))]
 use chrono_harness::verus;
-use core::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet};
-#[cfg(verus_keep_ghost)]
-include!(env!("CHRONO_VERUS_NODES"));
 #[cfg(not(verus_keep_ghost))]
 pub use chrono_judge_registration::NodeKind;
-#[cfg(verus_keep_ghost)]
-pub use nodes::NodeKind;
+use core::cmp::Ordering;
+use std::collections::{BTreeMap, BTreeSet};
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 #[cfg(verus_keep_ghost)]
@@ -23,6 +19,22 @@ pub use identifiers::compare_bytes;
 pub use identifiers::{
     byte_lt, byte_lt_asymmetric, byte_lt_strict, byte_lt_transitive, byte_prefix, byte_trichotomy,
 };
+
+/// Keep the public registration-type entry point for Rust callers.
+#[cfg(not(verus_keep_ghost))]
+pub fn valid_types(kind: EdgeKind, from: NodeKind, to: NodeKind) -> bool {
+    fn role(node: NodeKind) -> EndpointRole {
+        match node {
+            NodeKind::File => EndpointRole::File,
+            NodeKind::Project => EndpointRole::Project,
+            NodeKind::Script => EndpointRole::Script,
+            NodeKind::Test => EndpointRole::Test,
+            NodeKind::Judge => EndpointRole::Judge,
+            NodeKind::Input | NodeKind::Tool | NodeKind::Environment => EndpointRole::Resource,
+        }
+    }
+    valid_node_roles(kind, role(from), role(to))
+}
 
 verus! {
 
@@ -189,43 +201,36 @@ impl PartialEq for EdgeKind {
 
 impl Eq for EdgeKind {}
 
+/// Registered inputs, tools and environment variables share the same edge rules.
+#[derive(Copy, Clone)]
+pub enum EndpointRole { File, Project, Script, Resource, Test, Judge }
+
 /// Complete allowed relation, stated by destination rather than dispatch order.
-pub open spec fn permitted_types(kind: EdgeKind, from: NodeKind, to: NodeKind) -> bool {
-    let source = from == NodeKind::File || from == NodeKind::Project
-        || from == NodeKind::Script || from == NodeKind::Input
-        || from == NodeKind::Tool || from == NodeKind::Environment;
+pub open spec fn permitted_types(kind: EdgeKind, from: EndpointRole, to: EndpointRole) -> bool {
+    use EndpointRole::*;
+    let source = from == File || from == Project || from == Script || from == Resource;
     match to {
-        NodeKind::Project => (kind == EdgeKind::Compile
-            && (from == NodeKind::File || from == NodeKind::Project))
+        Project => (kind == EdgeKind::Compile && (from == File || from == Project))
             || ((kind == EdgeKind::BuildInput || kind == EdgeKind::RuntimeInput) && source),
-        NodeKind::Script => (kind == EdgeKind::BuildInput || kind == EdgeKind::RuntimeInput) && source,
-        NodeKind::Test => kind == EdgeKind::TestExecution && source,
-        NodeKind::Judge => (kind == EdgeKind::RuntimeInput && source)
-            || (kind == EdgeKind::JudgeTrigger && source && from != NodeKind::Script),
+        Script => (kind == EdgeKind::BuildInput || kind == EdgeKind::RuntimeInput) && source,
+        Test => kind == EdgeKind::TestExecution && source,
+        Judge => (kind == EdgeKind::RuntimeInput && source)
+            || (kind == EdgeKind::JudgeTrigger && source && from != Script),
         _ => false,
     }
 }
 
-pub fn valid_types(kind: EdgeKind, from: NodeKind, to: NodeKind) -> (valid: bool)
+pub fn valid_node_roles(kind: EdgeKind, from: EndpointRole, to: EndpointRole) -> (valid: bool)
     ensures valid == permitted_types(kind, from, to),
 {
-    use NodeKind::*;
+    use EndpointRole::*;
+    let source = matches!(from, File | Project | Script | Resource);
     match kind {
-        EdgeKind::Compile => matches!(from, File | Project) && to == Project,
-        EdgeKind::BuildInput => {
-            matches!(from, File | Project | Script | Input | Tool | Environment)
-                && matches!(to, Project | Script)
-        }
-        EdgeKind::RuntimeInput => {
-            matches!(from, File | Project | Script | Input | Tool | Environment)
-                && matches!(to, Project | Script | Judge)
-        }
-        EdgeKind::TestExecution => {
-            matches!(from, File | Project | Script | Input | Tool | Environment) && to == Test
-        }
-        EdgeKind::JudgeTrigger => {
-            matches!(from, File | Project | Input | Tool | Environment) && to == Judge
-        }
+        EdgeKind::Compile => matches!(from, File | Project) && matches!(to, Project),
+        EdgeKind::BuildInput => source && matches!(to, Project | Script),
+        EdgeKind::RuntimeInput => source && matches!(to, Project | Script | Judge),
+        EdgeKind::TestExecution => source && matches!(to, Test),
+        EdgeKind::JudgeTrigger => source && !matches!(from, Script) && matches!(to, Judge),
     }
 }
 
