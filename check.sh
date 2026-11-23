@@ -34,9 +34,5 @@ prove libchrono_identifiers "$(dirname "$identifiers_manifest")/src/lib.rs"
 proof_bindings=(--extern "chrono_identifiers=$scratch/libchrono_identifiers.rlib"
                 --import "chrono_identifiers=$scratch/chrono_identifiers.vir")
 
-# Resolve proof sources from the same revisions as the runtime libraries.
-cargo metadata --locked --format-version 1 --manifest-path crates/judge-filemap/Cargo.toml > "$scratch/packages.json"
-export CHRONO_VERUS_NODES="$scratch/nodes.rs"
-jq -er '[.packages[] | select(.name == "chrono-judge-registration") | .manifest_path | sub("Cargo.toml$"; "src/verified_nodes.rs")] | select(length == 1) | "#[path = " + (first | @json) + "] pub mod nodes;"' "$scratch/packages.json" > "$CHRONO_VERUS_NODES"
 prove verify.filemap-graph crates/judge-filemap/src/verified_graph.rs
 prove verify.filemap-graph-tests crates/judge-filemap-tests/tests/verified_graph.rs
