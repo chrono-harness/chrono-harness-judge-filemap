@@ -12,16 +12,7 @@ pub mod verified_graph;
 mod workflow;
 pub use request::Finding;
 use request::Request;
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Delta {
-    pub kind: String,
-    pub path: String,
-    pub old_blob: Option<String>,
-    pub new_blob: Option<String>,
-    pub old_mode: Option<String>,
-    pub new_mode: Option<String>,
-}
+pub use verified_graph::Delta;
 pub mod registration;
 use graph::{Closure, Edge, EdgeKind, Origin, Seed, UnionEdge};
 pub use records::{Change, Record, RecordPair};
@@ -30,6 +21,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use verified_graph::valid_types;
+
+struct CandidateTests<'a>(&'a BTreeMap<String, NodeView>);
+
+impl verified_graph::CandidateTestLookup for CandidateTests<'_> {
+    fn is_test(&self, node: &str) -> bool {
+        self.0
+            .get(node)
+            .is_some_and(|row| row.kind == NodeKind::Test)
+    }
+}
 
 pub const IMPACT_SCHEMA: &str = "chrono-filemap-impact/v6";
 /// Complete endpoint definitions; zero is absent, several are ambiguous.
@@ -49,12 +50,7 @@ pub struct NodeAmbiguity {
     pub endpoint: String,
     pub definitions: Vec<String>,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct RequiredTest {
-    pub node: String,
-    pub candidate_present: bool,
-    pub execution_edges: Vec<Edge>,
-}
+pub use verified_graph::RequiredTest;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct JudgeSelection {
     pub node: String,
@@ -162,19 +158,7 @@ pub fn produce(
     let mut records = BTreeMap::new();
     let mut changes = vec![];
     let mut seeds = BTreeSet::new();
-    let seed = |node: String, reference: String, reason: &str| Seed {
-        id: serde_json::to_string(&json!([reference, reason, node])).unwrap(),
-        node,
-        reference,
-        reason: reason.into(),
-    };
-    for d in delta {
-        seeds.insert(seed(
-            format!("file:{}", d.path),
-            d.path.clone(),
-            "delta-path",
-        ));
-    }
+    verified_graph::insert_delta_seeds(&mut seeds, delta, &graph::JsonSeedId);
     for id in a.keys().chain(b.keys()).collect::<BTreeSet<_>>() {
         let av = a.get(id);
         let bv = b.get(id);
@@ -187,7 +171,13 @@ pub fn produce(
         if !fields.is_empty() {
             for record in av.into_iter().chain(bv) {
                 for target in &record.targets {
-                    seeds.insert(seed(target.clone(), id.clone(), "record-change"));
+                    verified_graph::insert_seed(
+                        &mut seeds,
+                        &graph::JsonSeedId,
+                        target.clone(),
+                        id.clone(),
+                        "record-change",
+                    );
                 }
             }
             changes.push(Change {
@@ -234,9 +224,7 @@ pub fn produce(
                     )
                 )
             });
-        for node in [&e.from, &e.to] {
-            seeds.insert(seed(node.clone(), reference.clone(), "edge-change"));
-        }
+        verified_graph::insert_edge_seeds(&mut seeds, &graph::JsonSeedId, e, &reference);
     }
     let seeds: Vec<_> = seeds.into_iter().collect();
     let closure = graph::closure(&edges, &seeds);
@@ -380,19 +368,7 @@ pub fn produce(
             }
         }
     }
-    let required_tests: Vec<_> = closure
-        .selected_tests()
-        .into_iter()
-        .map(|node| RequiredTest {
-            candidate_present: bn.get(&node).is_some_and(|n| n.kind == NodeKind::Test),
-            execution_edges: verified_graph::target_edges(
-                &closure.traversed,
-                EdgeKind::TestExecution,
-                &node,
-            ),
-            node,
-        })
-        .collect();
+    let selection = verified_graph::report_tests(&closure.traversed, &CandidateTests(bn));
     let mut judges: Vec<_> = candidate.judges()["judges"]
         .as_array()
         .unwrap()
@@ -421,17 +397,9 @@ pub fn produce(
             edges,
             seed_causes: seeds,
             closure,
-            tests: required_tests
-                .iter()
-                .filter(|t| t.candidate_present)
-                .map(|t| t.node.clone())
-                .collect(),
-            retired_tests: required_tests
-                .iter()
-                .filter(|t| !t.candidate_present)
-                .map(|t| t.node.clone())
-                .collect(),
-            required_tests,
+            tests: selection.current,
+            retired_tests: selection.retired,
+            required_tests: selection.required,
             judges,
             historical_context,
             historical_ambiguities,

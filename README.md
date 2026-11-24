@@ -27,3 +27,7 @@ FILEMAP 的端点查询、调度和收集从 PATH 调用固定发行的 `chrono-
 本仓的产品和测试通过 crates.io 依赖独立构建。原生判官和 `cost-inputs-v1` 从宿主 PATH 选择已安装的 runner，使用其封存请求、限额和原生响应入口。固定提交的 Git 读取在一次 `git-facts-v1` 会话内完成，registration 和 mixed 通过 `run-command-v1` 在宿主指定的时间、输出上限和可执行文件摘要下运行。调用结束时关闭读取会话并收取实际退出状态。独立使用 `impact-summary`、`closure-v1` 和 `--version` 只需 FILEMAP 自身。
 
 `closure-v1` 和 impact 共用有限拓扑上的所有起点遍历。每个到达节点和原有类型边的原因集合恰好是能够到达它的输入起点 ID 集合。相同 ID 去重，互不相连的起点只作用于各自可达的部分。完整循环的验证绑定实际 FIFO 下标、原邻接行和公共报告使用的稀疏表。前驱树在每个起点完成时交给报告层。
+
+impact 从实际遍历原边一次生成 `required_tests`、`tests` 和 `retired_tests`。`test-execution` 目标按原节点名排序并去重，每个目标附上全部匹配原边。候选登记中确有测试节点的目标进入 `tests`，其余进入 `retired_tests`。
+
+变更文件、登记目标及有变化的边生成原因时，起点身份使用 JSON 的 `[reference, reason, node]`。Verus 核对实际传入编码器的字段顺序、所有 DELTA 文件及有变化边的两个端点。外部 JSON 字符串编码由 serde_json 提供，原生测试解码实际输出并核对含引号、反斜杠、换行及 Unicode 的身份。

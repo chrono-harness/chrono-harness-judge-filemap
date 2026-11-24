@@ -236,6 +236,41 @@ fn file_record_field_and_edge_add_delete_retarget_changes_seed_both_ends() {
     }
 }
 #[test]
+fn emitted_seed_ids_decode_to_the_exact_reference_reason_and_node() {
+    let source = "dir/引号\"与反斜杠\\以及换行\n[]";
+    let (impact, findings) = produce(
+        &views("cycle", "cycle"),
+        &[delta(source), delta("src.bin"), delta(source)],
+        Err("E_WORKFLOW_INPUT: classification unavailable".into()),
+    );
+    assert!(
+        findings
+            .iter()
+            .any(|finding| finding.code == "E_WORKFLOW_INPUT")
+    );
+    assert_eq!(impact.seed_causes.len(), 2);
+    for seed in &impact.seed_causes {
+        let fields: [String; 3] = serde_json::from_str(&seed.id).unwrap();
+        assert_eq!(
+            fields,
+            [
+                seed.reference.clone(),
+                seed.reason.clone(),
+                seed.node.clone()
+            ]
+        );
+        assert_eq!(seed.node, format!("file:{}", seed.reference));
+        assert_eq!(seed.reason, "delta-path");
+    }
+    assert!(
+        impact
+            .seed_causes
+            .iter()
+            .any(|seed| seed.reference == source)
+    );
+}
+
+#[test]
 fn cycles_diamonds_and_multiple_causes_retain_real_edges_and_all_seeds() {
     let rows = [
         ("file:src.bin", EdgeKind::Compile, "project:p"),

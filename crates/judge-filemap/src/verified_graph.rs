@@ -2145,6 +2145,23 @@ pub fn topology<'a>(edges: &'a [UnionEdge], roots: &[&'a str]) -> (out: Topology
     Topology { names, edge_rows, indices }
 }
 
+#[cfg_attr(not(verus_keep_ghost), derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(verus_keep_ghost), serde(deny_unknown_fields))]
+pub struct Delta {
+    pub kind: String,
+    pub path: String,
+    pub old_blob: Option<String>,
+    pub new_blob: Option<String>,
+    pub old_mode: Option<String>,
+    pub new_mode: Option<String>,
+}
+
+pub trait SeedEncoder {
+    spec fn encoded(&self, reference: Seq<char>, reason: Seq<char>, node: Seq<char>) -> Seq<char>;
+    fn encode(&self, fields: [&str; 3]) -> (id: String)
+        ensures id@ == self.encoded(fields[0]@, fields[1]@, fields[2]@);
+}
+
 pub struct Seed {
     pub id: String,
     pub node: String,
@@ -2299,6 +2316,69 @@ pub proof fn seed_obeys_cmp()
         seed_order_laws(&b, &c, &a);
         seed_order_laws(&c, &b, &a);
     }
+}
+
+#[cfg(verus_keep_ghost)]
+pub type SeedFields = (Seq<char>, Seq<char>, Seq<char>, Seq<char>);
+
+pub open spec fn seed_fields(seed: Seed) -> SeedFields {
+    (seed.id@, seed.node@, seed.reference@, seed.reason@)
+}
+
+pub open spec fn encoded_fields(encoder: &impl SeedEncoder, node: Seq<char>, reference: Seq<char>, reason: Seq<char>) -> SeedFields {
+    (encoder.encoded(reference, reason, node), node, reference, reason)
+}
+
+pub fn insert_seed(seeds: &mut BTreeSet<Seed>, encoder: &impl SeedEncoder, node: String, reference: String, reason: &str)
+    ensures seeds@.map(|s: Seed| seed_fields(s)) == old(seeds)@.map(|s: Seed| seed_fields(s))
+        .insert(encoded_fields(encoder, node@, reference@, reason@)),
+{
+    proof { seed_obeys_cmp(); }
+    let id = encoder.encode([reference.as_str(), reason, node.as_str()]);
+    let seed = Seed { id, node, reference, reason: reason.to_owned() };
+    let ghost before = seeds@;
+    proof { before.lemma_set_map_insert_commute(seed, |s: Seed| seed_fields(s)); }
+    seeds.insert(seed);
+}
+
+pub open spec fn delta_fields(encoder: &impl SeedEncoder, d: Delta) -> SeedFields {
+    encoded_fields(encoder, "file:"@ + d.path@, d.path@, "delta-path"@)
+}
+
+pub fn insert_delta_seeds(seeds: &mut BTreeSet<Seed>, delta: &[Delta], encoder: &impl SeedEncoder)
+    ensures seeds@.map(|s: Seed| seed_fields(s)) == old(seeds)@.map(|s: Seed| seed_fields(s))
+        + delta@.map_values(|d: Delta| delta_fields(encoder, d)).to_set(),
+{
+    use vstd::string::StringExecFns;
+    let ghost before = seeds@.map(|s: Seed| seed_fields(s));
+    let mut at: usize = 0;
+    while at < delta.len()
+        invariant at <= delta.len(), seeds@.map(|s: Seed| seed_fields(s)) == before
+            + delta@.take(at as int).map_values(|d: Delta| delta_fields(encoder, d)).to_set(),
+        decreases delta.len() - at,
+    {
+        let d = &delta[at];
+        let node = "file:".to_owned().concat(d.path.as_str());
+        insert_seed(seeds, encoder, node, d.path.clone(), "delta-path");
+        proof {
+            let prefix = delta@.take(at as int);
+            assert(delta@.take(at as int + 1) =~= prefix.push(*d));
+            let keys = prefix.map_values(|d: Delta| delta_fields(encoder, d));
+            assert(prefix.push(*d).map_values(|d: Delta| delta_fields(encoder, d)) =~= keys.push(delta_fields(encoder, *d)));
+            keys.lemma_push_to_set_commute(delta_fields(encoder, *d));
+        }
+        at += 1;
+    }
+    assert(delta@.take(at as int) =~= delta@);
+}
+
+pub fn insert_edge_seeds(seeds: &mut BTreeSet<Seed>, encoder: &impl SeedEncoder, edge: &Edge, reference: &str)
+    ensures seeds@.map(|s: Seed| seed_fields(s)) == old(seeds)@.map(|s: Seed| seed_fields(s))
+        .insert(encoded_fields(encoder, edge.from@, reference@, "edge-change"@))
+        .insert(encoded_fields(encoder, edge.to@, reference@, "edge-change"@)),
+{
+    insert_seed(seeds, encoder, edge.from.clone(), reference.to_owned(), "edge-change");
+    insert_seed(seeds, encoder, edge.to.clone(), reference.to_owned(), "edge-change");
 }
 
 /// Preserve the node field and position of every actual Seed, including duplicates.
@@ -3356,6 +3436,80 @@ pub fn selected_test_targets(rows: &[TraversedEdge]) -> (out: Vec<String>)
     }
     assert(rows@.take(at as int) =~= rows@);
     targets.into_names()
+}
+
+/// The host registry determines whether a reached test exists at the candidate endpoint.
+pub trait CandidateTestLookup {
+    spec fn present(&self, name: Seq<char>) -> bool;
+    fn is_test(&self, node: &str) -> (out: bool)
+        ensures out == self.present(node@);
+}
+
+#[cfg_attr(not(verus_keep_ghost), derive(Clone, Debug, serde::Serialize, serde::Deserialize))]
+pub struct RequiredTest {
+    pub node: String,
+    pub candidate_present: bool,
+    pub execution_edges: Vec<Edge>,
+}
+
+pub struct TestReport {
+    pub required: Vec<RequiredTest>,
+    pub current: Vec<String>,
+    pub retired: Vec<String>,
+}
+
+pub open spec fn requested_names(rows: Seq<RequiredTest>, present: bool) -> Seq<String> {
+    rows.filter(|row: RequiredTest| row.candidate_present == present).map_values(|row: RequiredTest| row.node)
+}
+
+/// Select unique test-execution targets once, partition by endpoint, and attach the exact original edges.
+pub fn report_tests(rows: &[TraversedEdge], lookup: &impl CandidateTestLookup) -> (out: TestReport)
+    ensures
+        ordered_causes(out.required@.map_values(|r: RequiredTest| r.node)),
+        cause_keys(out.required@.map_values(|r: RequiredTest| r.node)).to_set() == selected_target_keys(rows@),
+        out.current@ == requested_names(out.required@, true),
+        out.retired@ == requested_names(out.required@, false),
+        forall|i: int| 0 <= i < out.required.len() ==> {
+            let r = #[trigger] out.required@[i];
+            r.candidate_present == lookup.present(r.node@) &&
+                r.execution_edges@ == matching_edges(rows@, EdgeKind::TestExecution, cause_name(r.node))
+        },
+{
+    let targets = selected_test_targets(rows);
+    let mut required = Vec::new();
+    let mut current = Vec::new();
+    let mut retired = Vec::new();
+    let mut at: usize = 0;
+    while at < targets.len()
+        invariant at <= targets.len(), required.len() == at,
+            required@.map_values(|r: RequiredTest| r.node) == targets@.take(at as int),
+            current@ == requested_names(required@, true), retired@ == requested_names(required@, false),
+            forall|i: int| 0 <= i < at ==> {
+                let r = #[trigger] required@[i];
+                r.candidate_present == lookup.present(r.node@) &&
+                    r.execution_edges@ == matching_edges(rows@, EdgeKind::TestExecution, cause_name(r.node))
+            },
+        decreases targets.len() - at,
+    {
+        let node = &targets[at];
+        let present = lookup.is_test(node.as_str());
+        let edges = target_edges(rows, EdgeKind::TestExecution, node.as_str());
+        let row = RequiredTest { node: node.clone(), candidate_present: present, execution_edges: edges };
+        let ghost before = required@;
+        let ghost item = row;
+        if present { current.push(node.clone()); } else { retired.push(node.clone()); }
+        required.push(row);
+        proof {
+            assert(before.push(item).map_values(|r: RequiredTest| r.node)
+                =~= before.map_values(|r: RequiredTest| r.node).push(item.node));
+            assert(targets@.take(at as int + 1) =~= targets@.take(at as int).push(*node));
+            before.lemma_filter_push(item, |r: RequiredTest| r.candidate_present == true);
+            before.lemma_filter_push(item, |r: RequiredTest| r.candidate_present == false);
+        }
+        at += 1;
+    }
+    assert(targets@.take(at as int) =~= targets@);
+    TestReport { required, current, retired }
 }
 
 /// One FIFO-discovered node and its complete original typed adjacency row.
