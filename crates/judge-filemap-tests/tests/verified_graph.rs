@@ -1963,6 +1963,57 @@ proof fn singleton_set<A>(value: A)
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn two_propagations_keep_only_their_original_nodes_edges_and_causes() {
+    let shared = edge("a", policy::EdgeKind::TestExecution, "b");
+    let outgoing = vec![&shared];
+    let empty = Vec::new();
+    let first = vec![
+        policy::ReachedRow { index: 1, node: "a", outgoing: &outgoing },
+        policy::ReachedRow { index: 3, node: "b", outgoing: &empty },
+        policy::ReachedRow { index: 1, node: "a", outgoing: &outgoing },
+    ];
+    let second = vec![policy::ReachedRow { index: 3, node: "b", outgoing: &empty }];
+    let mut nodes = std::collections::BTreeMap::new();
+    let mut edges = std::collections::BTreeMap::new();
+    policy::merge_propagation(&mut nodes, &mut edges, &[], "unused");
+    policy::merge_propagation(&mut nodes, &mut edges, &first, "one");
+    assert(first@.map_values(|r: policy::ReachedRow| r.index) =~= seq![1usize, 3usize, 1usize]);
+    proof {
+        Seq::<usize>::empty().lemma_push_to_set_commute(1);
+        seq![1usize].lemma_push_to_set_commute(3);
+        seq![1usize, 3usize].lemma_push_to_set_commute(1);
+        singleton_set(3usize);
+        singleton_set(shared);
+    }
+    assert(outgoing@.map_values(|e: &policy::Edge| *e) =~= seq![shared]);
+    assert(policy::outgoing_members(outgoing@) =~= set![shared]);
+    assert(policy::outgoing_members(empty@) =~= Set::<policy::Edge>::empty());
+    assert forall|key: policy::Edge| policy::row_edges(first@).contains(key) == (key == shared) by {
+        if policy::row_edges(first@).contains(key) {
+            let i = choose|i: int| 0 <= i < first.len()
+                && policy::outgoing_members(#[trigger] first@[i].outgoing@).contains(key);
+            if i == 0 {} else if i == 1 {} else { assert(i == 2); }
+        } else { assert(first@[0].outgoing@ == outgoing@); }
+    }
+    assert(policy::row_indices(first@) =~= set![1usize, 3usize]);
+    assert(policy::row_edges(first@) =~= set![shared]);
+    policy::merge_propagation(&mut nodes, &mut edges, &second, "two");
+    assert(second@.map_values(|r: policy::ReachedRow| r.index) =~= seq![3usize]);
+    assert(policy::row_indices(second@) =~= set![3usize]);
+    assert(policy::row_edges(second@) =~= Set::<policy::Edge>::empty());
+    assert(nodes@.dom() =~= set![1usize, 3usize]);
+    assert(policy::node_causes(nodes@, 1) =~= set!["one".spec_bytes()]);
+    assert(policy::node_causes(nodes@, 3) =~= set!["one".spec_bytes(), "two".spec_bytes()]);
+    assert(policy::edge_causes(edges@, shared) =~= set!["one".spec_bytes()]);
+    #[cfg(not(verus_keep_ghost))]
+    {
+        assert_eq!(nodes[&1].entries(), &["one"]);
+        assert_eq!(nodes[&3].entries(), &["one", "two"]);
+        assert_eq!(edges[&shared].entries(), &["one"]);
+    }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn outgoing_duplicates_merge_ids_without_changing_unrelated_edges() {
     broadcast use vstd::std_specs::btree::group_btree_axioms;
     proof {
