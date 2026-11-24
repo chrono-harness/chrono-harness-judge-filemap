@@ -3360,8 +3360,132 @@ pub fn selected_test_targets(rows: &[TraversedEdge]) -> (out: Vec<String>)
 
 /// One FIFO-discovered node and its complete original typed adjacency row.
 pub struct ReachedRow<'t, 'a> {
+    pub index: usize,
     pub node: &'a str,
     pub outgoing: &'t Vec<&'a Edge>,
+}
+
+pub open spec fn row_indices(rows: Seq<ReachedRow>) -> Set<usize> {
+    rows.map_values(|row: ReachedRow| row.index).to_set()
+}
+
+pub open spec fn row_edges(rows: Seq<ReachedRow>) -> Set<Edge> {
+    Set::new(|edge: Edge| exists|i: int| 0 <= i < rows.len()
+        && outgoing_members((#[trigger] rows[i]).outgoing@).contains(edge))
+}
+
+proof fn push_row_edges(rows: Seq<ReachedRow>, row: ReachedRow)
+    ensures row_edges(rows.push(row)) == row_edges(rows) + outgoing_members(row.outgoing@),
+{
+    assert forall|edge: Edge| row_edges(rows.push(row)).contains(edge) ==
+        (row_edges(rows).contains(edge) || outgoing_members(row.outgoing@).contains(edge)) by {
+        if row_edges(rows.push(row)).contains(edge) {
+            let i = choose|i: int| 0 <= i < rows.push(row).len() &&
+                outgoing_members(#[trigger] rows.push(row)[i].outgoing@).contains(edge);
+            if i < rows.len() { assert(rows[i] == rows.push(row)[i]); }
+        } else if row_edges(rows).contains(edge) {
+            let i = choose|i: int| 0 <= i < rows.len() &&
+                outgoing_members(#[trigger] rows[i].outgoing@).contains(edge);
+            assert(rows.push(row)[i] == rows[i]);
+        } else { assert(rows.push(row)[rows.len() as int] == row); }
+    }
+    assert(row_edges(rows.push(row)) =~= row_edges(rows) + outgoing_members(row.outgoing@));
+}
+
+pub open spec fn node_causes(nodes: Map<usize, CauseSet>, node: usize) -> Set<Seq<u8>> {
+    if nodes.contains_key(node) { nodes[node].keys().to_set() } else { Set::empty() }
+}
+
+/// Merge the FIFO rows from one seed into the sparse set of reached nodes.
+/// Rows carry the index into the topology's ordered, unique node names.
+pub fn merge_propagation(
+    nodes: &mut BTreeMap<usize, CauseSet>, traversed: &mut BTreeMap<Edge, CauseSet>,
+    rows: &[ReachedRow], cause: &str,
+)
+    ensures traversed@.dom() == old(traversed)@.dom() + row_edges(rows@),
+        forall|edge: Edge| #[trigger] edge_causes(traversed@, edge)
+            == edge_causes(old(traversed)@, edge) + if row_edges(rows@).contains(edge) {
+                Set::empty().insert(cause.spec_bytes())
+            } else { Set::empty() },
+        nodes@.dom() == old(nodes)@.dom() + row_indices(rows@),
+        forall|node: usize| #[trigger] node_causes(nodes@, node)
+            == node_causes(old(nodes)@, node) + if row_indices(rows@).contains(node) {
+                Set::empty().insert(cause.spec_bytes())
+            } else { Set::empty() },
+{
+    broadcast use vstd::std_specs::btree::axiom_maps_deref_key_to_value;
+    broadcast use vstd::std_specs::btree::axiom_contains_deref_key;
+    broadcast use vstd::std_specs::btree::axiom_deref_key_removed;
+    let ghost before = nodes@;
+    let ghost original_edges = traversed@;
+    let mut at: usize = 0;
+    while at < rows.len()
+        invariant at <= rows.len(),
+            traversed@.dom() == original_edges.dom() + row_edges(rows@.take(at as int)),
+            forall|edge: Edge| #[trigger] edge_causes(traversed@, edge)
+                == edge_causes(original_edges, edge) + if row_edges(rows@.take(at as int)).contains(edge) {
+                    Set::empty().insert(cause.spec_bytes())
+                } else { Set::empty() },
+            nodes@.dom() == before.dom() + row_indices(rows@.take(at as int)),
+            forall|node: usize| #[trigger] node_causes(nodes@, node)
+                == node_causes(before, node) + if row_indices(rows@.take(at as int)).contains(node) {
+                    Set::empty().insert(cause.spec_bytes())
+                } else { Set::empty() },
+        decreases rows.len() - at,
+    {
+        let row = &rows[at];
+        let ghost previous = nodes@;
+        let mut causes = match nodes.remove(&row.index) {
+            Some(causes) => causes,
+            None => CauseSet::default(),
+        };
+        assert(causes.keys().to_set() == node_causes(previous, row.index));
+        causes.insert(cause);
+        nodes.insert(row.index, causes);
+        let ghost previous_edges = traversed@;
+        merge_traversed_causes(traversed, row.outgoing, cause);
+        proof {
+            let prefix = rows@.take(at as int);
+            assert(rows@.take(at as int + 1) =~= prefix.push(*row));
+            push_row_edges(prefix, *row);
+            assert forall|edge: Edge| #[trigger] edge_causes(traversed@, edge)
+                == edge_causes(original_edges, edge) + if row_edges(rows@.take(at as int + 1)).contains(edge) {
+                    Set::empty().insert(cause.spec_bytes())
+                } else { Set::empty() } by {
+                assert(edge_causes(previous_edges, edge) == edge_causes(original_edges, edge)
+                    + if row_edges(prefix).contains(edge) { Set::empty().insert(cause.spec_bytes()) }
+                      else { Set::empty() });
+                assert(edge_causes(traversed@, edge) == edge_causes(previous_edges, edge)
+                    + if outgoing_members(row.outgoing@).contains(edge) { Set::empty().insert(cause.spec_bytes()) }
+                      else { Set::empty() });
+                if outgoing_members(row.outgoing@).contains(edge) {
+                    assert(edge_causes(traversed@, edge) =~= edge_causes(original_edges, edge).insert(cause.spec_bytes()));
+                }
+            }
+            let indices = prefix.map_values(|r: ReachedRow| r.index);
+            assert(prefix.push(*row).map_values(|r: ReachedRow| r.index) =~= indices.push(row.index));
+            indices.lemma_push_to_set_commute(row.index);
+            assert(row_indices(rows@.take(at as int + 1)) =~= row_indices(prefix).insert(row.index));
+            assert forall|node: usize| #[trigger] node_causes(nodes@, node)
+                == node_causes(before, node) + if row_indices(rows@.take(at as int + 1)).contains(node) {
+                    Set::empty().insert(cause.spec_bytes())
+                } else { Set::empty() } by {
+                assert(node_causes(previous, node) == node_causes(before, node)
+                    + if row_indices(prefix).contains(node) {
+                        Set::empty().insert(cause.spec_bytes())
+                    } else { Set::empty() });
+                if node == row.index {
+                    assert(node_causes(nodes@, node) == node_causes(previous, node).insert(cause.spec_bytes()));
+                    assert(node_causes(previous, node).insert(cause.spec_bytes())
+                        =~= node_causes(before, node) + Set::empty().insert(cause.spec_bytes()));
+                } else {
+                    assert(node_causes(nodes@, node) == node_causes(previous, node));
+                }
+            }
+        }
+        at += 1;
+    }
+    assert(rows@.take(at as int) =~= rows@);
 }
 
 pub struct Propagation<'t, 'a> {
@@ -3376,6 +3500,7 @@ pub open spec fn propagation_rows(
         && forall|at: int| 0 <= at < rows.len() ==> {
             let node = #[trigger] order[at];
             node < names.len() && node < edge_rows.len()
+                && rows[at].index == node
                 && rows[at].node.spec_bytes() == names[node as int].spec_bytes()
                 && rows[at].outgoing@ == edge_rows[node as int]@
         }
@@ -3449,6 +3574,7 @@ pub fn propagate<'t, 'a>(topology: &'t Topology<'a>, root: usize) -> (out: Propa
             forall|i: int| 0 <= i < rows.len() ==> {
                 let node = #[trigger] search.order@[i];
                 node < topology.names.len() && node < topology.edge_rows.len()
+                    && rows@[i].index == node
                     && rows@[i].node.spec_bytes() == topology.names@[node as int].spec_bytes()
                     && rows@[i].outgoing@ == topology.edge_rows@[node as int]@
             },
@@ -3458,7 +3584,7 @@ pub fn propagate<'t, 'a>(topology: &'t Topology<'a>, root: usize) -> (out: Propa
         let node = search.order[at];
         let name = topology.names[node];
         assert(name.spec_bytes() == topology.names@[node as int].spec_bytes());
-        rows.push(ReachedRow { node: name, outgoing: &topology.edge_rows[node] });
+        rows.push(ReachedRow { index: node, node: name, outgoing: &topology.edge_rows[node] });
         at += 1;
     }
     proof {

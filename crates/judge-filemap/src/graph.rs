@@ -206,25 +206,25 @@ pub fn closure(edges: &[UnionEdge], seeds: &[Seed]) -> Closure {
         traversed: vec![],
     };
     let topology = crate::verified_graph::seed_topology(edges, seeds);
-    let mut traversed: BTreeMap<Edge, CauseSet> = BTreeMap::new();
+    let mut reached = BTreeMap::new();
+    let mut traversed = BTreeMap::new();
     let propagations = crate::verified_graph::SeedPropagations::new(&topology, seeds);
     for item in propagations {
         let seed = item.seed;
         let propagation = item.propagation;
-        for row in propagation.rows {
-            out.reached
-                .entry(row.node.to_owned())
-                .or_default()
-                .insert(seed.id.as_str());
-            crate::verified_graph::merge_traversed_causes(
-                &mut traversed,
-                row.outgoing,
-                seed.id.as_str(),
-            );
-        }
+        crate::verified_graph::merge_propagation(
+            &mut reached,
+            &mut traversed,
+            &propagation.rows,
+            seed.id.as_str(),
+        );
         out.predecessors
             .insert(seed.id.clone(), propagation.predecessors);
     }
+    out.reached = reached
+        .into_iter()
+        .map(|(node, causes)| (topology.names[node].to_owned(), causes))
+        .collect();
     out.traversed = traversed
         .into_iter()
         .map(|(edge, seeds)| TraversedEdge { edge, seeds })
