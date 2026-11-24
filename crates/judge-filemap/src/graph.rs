@@ -199,37 +199,28 @@ pub struct Closure {
     /// All traversed edges and contributing seeds, including alternate paths and cycle edges.
     pub traversed: Vec<TraversedEdge>,
 }
-pub fn closure(edges: &[UnionEdge], seeds: &[Seed]) -> Closure {
-    let mut out = Closure {
-        reached: BTreeMap::new(),
-        predecessors: BTreeMap::new(),
-        traversed: vec![],
-    };
-    let topology = crate::verified_graph::seed_topology(edges, seeds);
-    let mut reached = BTreeMap::new();
-    let mut traversed = BTreeMap::new();
-    let propagations = crate::verified_graph::SeedPropagations::new(&topology, seeds);
-    for item in propagations {
-        let seed = item.seed;
-        let propagation = item.propagation;
-        crate::verified_graph::merge_propagation(
-            &mut reached,
-            &mut traversed,
-            &propagation.rows,
-            seed.id.as_str(),
-        );
-        out.predecessors
-            .insert(seed.id.clone(), propagation.predecessors);
+impl crate::verified_graph::PredecessorSink for BTreeMap<String, PredecessorTree> {
+    fn record(&mut self, seed: &Seed, tree: PredecessorTree) {
+        self.insert(seed.id.clone(), tree);
     }
-    out.reached = reached
-        .into_iter()
-        .map(|(node, causes)| (topology.names[node].to_owned(), causes))
-        .collect();
-    out.traversed = traversed
-        .into_iter()
-        .map(|(edge, seeds)| TraversedEdge { edge, seeds })
-        .collect();
-    out
+}
+pub fn closure(edges: &[UnionEdge], seeds: &[Seed]) -> Closure {
+    let topology = crate::verified_graph::seed_topology(edges, seeds);
+    let mut predecessors = BTreeMap::new();
+    let causes = crate::verified_graph::collect_causes(&topology, seeds, &mut predecessors);
+    Closure {
+        reached: causes
+            .nodes
+            .into_iter()
+            .map(|(node, causes)| (topology.names[node].to_owned(), causes))
+            .collect(),
+        predecessors,
+        traversed: causes
+            .edges
+            .into_iter()
+            .map(|(edge, seeds)| TraversedEdge { edge, seeds })
+            .collect(),
+    }
 }
 impl Closure {
     pub fn selected_tests(&self) -> BTreeSet<String> {
