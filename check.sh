@@ -25,19 +25,19 @@ coverage_failure() {
 
 prove() {
   local label=$1 root=$2
-  shift 2
-  local output="$scratch/$label.rlib"
+  local output="$scratch/$label.rlib" report="$scratch/$label.json"
   "${VERUS:-verus}" --crate-type=lib --no-cheating --no-external-by-default --num-threads 2 \
     --output-json --compile "--emit=link=$output,dep-info=$output.d" "$root" -o "$output" \
-    -Zchecksum-hash-algorithm=sha256 > "$scratch/proof.json" || { cat "$scratch/proof.json" >&2; coverage_failure "$label: verifier failed"; }
-  cat "$scratch/proof.json"
-  jq -e '.verus.version == "0.2026.04.24.f8e1704" and
-    .verus.commit == "f8e17045c4ac17a02e566b8997070f2eecc255be" and
-    (."verification-results" | .success == true and ."is-verifying-entire-crate" == true and
-    ."encountered-error" == false and ."encountered-vir-error" == false and
-    .errors == 0 and .verified > 0)' "$scratch/proof.json" >/dev/null || coverage_failure "$label: unexpected verifier report"
-  test -s "$output" && test -s "$output.d" || coverage_failure "$label: missing compiler output"
-  chrono-host-bootstrap check-compiler-sources proof "$output" "$@" || coverage_failure "$label: compiled sources differ from required inputs"
+    -Zchecksum-hash-algorithm=sha256 > "$report" || { cat "$report" >&2; coverage_failure "$label: verifier failed"; }
+}
+
+admit_proof() {
+  local label=$1
+  shift
+  chrono-host-bootstrap check-compiler-proof \
+    0.2026.04.24.f8e1704 f8e17045c4ac17a02e566b8997070f2eecc255be \
+    "$scratch/$label.json" "$scratch/$label.rlib" "$@" ||
+    coverage_failure "$label: required proof result was not admitted"
 }
 
 # Read the exact library selected by Cargo in the build of the tested executable.
@@ -56,5 +56,12 @@ graph=crates/judge-filemap/src/verified_graph.rs
 keys=crates/judge-filemap/src/graph_key.rs
 expectations=crates/judge-filemap-tests/tests/verified_graph.rs
 include=crates/judge-filemap-tests/tests/../../judge-filemap/src
-prove verify.filemap-graph "$graph" "$graph" "$keys"
-prove verify.filemap-graph-tests "$expectations" "$expectations" "$include/verified_graph.rs" "$include/graph_key.rs"
+
+product_operation=verify.filemap-graph
+test_operation=verify.filemap-graph-tests
+
+prove "$product_operation" "$graph"
+prove "$test_operation" "$expectations"
+
+admit_proof "$product_operation" "$graph" "$keys"
+admit_proof "$test_operation" "$expectations" "$include/verified_graph.rs" "$include/graph_key.rs"
