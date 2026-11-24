@@ -3278,6 +3278,45 @@ impl Clone for TraversedEdge {
     }
 }
 
+/// Original traversal edges that justify this particular test or judge.
+#[verifier::opaque]
+pub open spec fn matching_edges(rows: Seq<TraversedEdge>, kind: EdgeKind, target: Seq<u8>) -> Seq<Edge>
+    decreases rows.len(),
+{
+    if rows.len() == 0 { seq![] } else {
+        let previous = matching_edges(rows.drop_last(), kind, target);
+        let edge = rows.last().edge;
+        if edge.kind == kind && edge.to_bytes() == target { previous.push(edge) } else { previous }
+    }
+}
+
+pub fn target_edges(rows: &[TraversedEdge], kind: EdgeKind, target: &str) -> (edges: Vec<Edge>)
+    ensures edges@ == matching_edges(rows@, kind, target.spec_bytes()),
+{
+    let mut edges = Vec::new();
+    let mut at = 0;
+    proof { reveal(matching_edges); }
+    while at < rows.len()
+        invariant at <= rows.len(),
+            edges@ == matching_edges(rows@.take(at as int), kind, target.spec_bytes()),
+        decreases rows.len() - at,
+    {
+        let edge = &rows[at].edge;
+        if edge.kind == kind && compare_bytes(edge.to.as_str().as_bytes(), target.as_bytes()) == 0 {
+            edges.push(edge.clone());
+        }
+        proof {
+            let next = rows@.take(at as int + 1);
+            assert(next.last() == rows@[at as int]);
+            assert(next.drop_last() =~= rows@.take(at as int));
+            reveal(matching_edges);
+        }
+        at += 1;
+    }
+    assert(rows@.take(at as int) =~= rows@);
+    edges
+}
+
 #[verifier::opaque]
 pub open spec fn selected_target_keys(rows: Seq<TraversedEdge>) -> Set<Seq<u8>>
     decreases rows.len(),

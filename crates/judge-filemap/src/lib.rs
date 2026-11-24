@@ -385,12 +385,11 @@ pub fn produce(
         .into_iter()
         .map(|node| RequiredTest {
             candidate_present: bn.get(&node).is_some_and(|n| n.kind == NodeKind::Test),
-            execution_edges: closure
-                .traversed
-                .iter()
-                .filter(|e| e.edge.kind == EdgeKind::TestExecution && e.edge.to == node)
-                .map(|e| e.edge.clone())
-                .collect(),
+            execution_edges: verified_graph::target_edges(
+                &closure.traversed,
+                EdgeKind::TestExecution,
+                &node,
+            ),
             node,
         })
         .collect();
@@ -401,12 +400,11 @@ pub fn produce(
         .map(|j| {
             let node = format!("judge:{}", j["id"].as_str().unwrap());
             JudgeSelection {
-                triggers: closure
-                    .traversed
-                    .iter()
-                    .filter(|e| e.edge.kind == EdgeKind::JudgeTrigger && e.edge.to == node)
-                    .map(|e| e.edge.clone())
-                    .collect(),
+                triggers: verified_graph::target_edges(
+                    &closure.traversed,
+                    EdgeKind::JudgeTrigger,
+                    &node,
+                ),
                 node,
             }
         })
