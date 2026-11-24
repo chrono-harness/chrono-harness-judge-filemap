@@ -118,6 +118,14 @@ impl std::fmt::Debug for UnionEdge {
             .finish()
     }
 }
+pub(crate) struct JsonSeedId;
+
+impl crate::verified_graph::SeedEncoder for JsonSeedId {
+    fn encode(&self, fields: [&str; 3]) -> String {
+        serde_json::to_string(&fields).expect("three string fields serialize as a JSON array")
+    }
+}
+
 impl std::fmt::Debug for Seed {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
