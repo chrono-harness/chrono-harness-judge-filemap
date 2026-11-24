@@ -394,7 +394,8 @@ fn shared_graph_does_not_need_full_registration_and_only_execution_edges_select(
             reference: "legacy".into(),
             reason: "adapter".into(),
         }],
-    );
+    )
+    .unwrap();
     assert!(c.reached.contains_key("test:legacy"));
     assert!(
         c.selected_tests().is_empty(),
@@ -685,7 +686,7 @@ fn indexed_closure_preserves_shortest_ties_edge_kinds_and_seed_identity() {
     // Input order and repeated identical edges cannot change adjacency ordering.
     edges.reverse();
     edges.push(edges[0].clone());
-    let closure = graph::closure(&edges, &seeds);
+    let closure = graph::closure(&edges, &seeds).unwrap();
     let expected = vec![
         Edge {
             from: "根".into(),
@@ -714,11 +715,37 @@ fn indexed_closure_preserves_shortest_ties_edge_kinds_and_seed_identity() {
                 .collect::<Vec<_>>()
                 == ["other", "s"]
     }));
-    // Existing shared-ID behavior: reached causes merge, the last tree owns that ID.
     let duplicate = graph::closure(&edges, &[seed("same", "根"), seed("same", "孤")]);
-    assert!(duplicate.reached["end"].contains("same"));
-    assert_eq!(duplicate.witness("same", "end"), None);
-    assert_eq!(duplicate.witness("same", "孤"), Some(vec![]));
+    assert_eq!(
+        duplicate.unwrap_err(),
+        "E_SEED_ID_CONFLICT: seed ID \"same\" refers to both \"根\" and \"孤\""
+    );
+}
+
+#[test]
+fn public_closure_rejects_one_id_for_different_roots_and_accepts_a_repeated_root() {
+    let edge = json!({"from": "A", "kind": "test-execution", "to": "test:T"});
+    let seed = |node, reference| json!({"id":"same", "node":node, "reference": reference, "reason":"explicit"});
+    for reachable_only in [false, true] {
+        let mut request = json!({"base":[],"candidate":[edge],"seeds":[seed("A", "one"), seed("B", "two")],"reachable_only":reachable_only});
+        let query =
+            |request: &serde_json::Value| graph::query_closure(request.to_string().as_bytes());
+        let error = query(&request).unwrap_err();
+        assert_eq!(
+            error,
+            "E_SEED_ID_CONFLICT: seed ID \"same\" refers to both \"A\" and \"B\""
+        );
+        request["seeds"][1] = seed("A", "two");
+        let result = query(&request).unwrap();
+        assert_eq!(result["selected_tests"], json!(["test:T"]));
+        if !reachable_only {
+            assert_eq!(
+                result["closure"]["predecessors"]["same"],
+                json!({"A": null, "test:T": edge})
+            );
+            assert_eq!(result["closure"]["reached"]["test:T"], json!(["same"]));
+        }
+    }
 }
 
 #[test]
@@ -830,7 +857,7 @@ fn propagation_projects_fifo_names_and_complete_typed_rows_into_the_actual_consu
     assert!(isolated.rows[0].outgoing.is_empty());
     assert_eq!(isolated.predecessors.witness(""), Some(vec![]));
 
-    let closure = graph::closure(&edges, &seeds);
+    let closure = graph::closure(&edges, &seeds).unwrap();
     assert_eq!(
         serde_json::to_value(&closure.reached).unwrap(),
         json!({"": ["isolated"], "a": ["s"], "é": ["s"], "根\0": ["s"]})

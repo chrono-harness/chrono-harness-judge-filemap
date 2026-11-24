@@ -4003,6 +4003,72 @@ pub fn collect_causes(t: &Topology, seeds: &[Seed], sink: &mut impl PredecessorS
     }
 }
 
+/// Return two input positions if a public predecessor key denotes two different roots.
+pub fn conflicting_seed_roots(seeds: &[Seed]) -> (out: Option<(usize, usize)>)
+    ensures match out {
+        Some((left, right)) => left < right < seeds.len()
+            && seeds@[left as int].key().0 == seeds@[right as int].key().0
+            && seeds@[left as int].key().1 != seeds@[right as int].key().1,
+        None => forall|left: int, right: int| 0 <= left < right < seeds.len()
+            && seeds@[left].key().0 == seeds@[right].key().0
+            ==> seeds@[left].key().1 == seeds@[right].key().1,
+    },
+{
+    let mut ids: Vec<&str> = Vec::with_capacity(seeds.len());
+    let mut at: usize = 0;
+    while at < seeds.len()
+        invariant at <= seeds.len(), ids.len() == at,
+            forall|k: int| 0 <= k < at ==> (#[trigger] ids@[k]).spec_bytes() == seeds@[k].key().0,
+        decreases seeds.len() - at,
+    {
+        ids.push(seeds[at].id.as_str());
+        at += 1;
+    }
+    let names = name_inventory(&ids);
+    let mut owners: Vec<Option<usize>> = vec![None; names.len()];
+    at = 0;
+    while at < seeds.len()
+        invariant at <= seeds.len(), ids.len() == seeds.len(),
+            forall|k: int| 0 <= k < seeds.len() ==> (#[trigger] ids@[k]).spec_bytes() == seeds@[k].key().0,
+            owners.len() == names.len(), ordered_names(names@), name_members(names@) == name_members(ids@),
+            forall|slot: int| 0 <= slot < owners.len() && (#[trigger] owners@[slot]) is Some ==> {
+                let first = owners@[slot]->Some_0;
+                first < at && seeds@[first as int].key().0 == names@[slot].spec_bytes()
+            },
+            forall|slot: int, k: int| 0 <= slot < owners.len() && 0 <= k < at
+                && (#[trigger] names@[slot]).spec_bytes() == (#[trigger] seeds@[k]).key().0
+                ==> owners@[slot] is Some && seeds@[owners@[slot]->Some_0 as int].key().1 == seeds@[k].key().1,
+        decreases seeds.len() - at,
+    {
+        let id = ids[at];
+        assert(name_members(ids@).contains(id.spec_bytes()));
+        let slot = name_index(&names, id).unwrap();
+        proof {
+            assert forall|j: int| 0 <= j < names.len() && j != slot implies
+                (#[trigger] names@[j]).spec_bytes() != id.spec_bytes() by {
+                if names@[j].spec_bytes() == id.spec_bytes() { byte_lt_strict(id.spec_bytes(), id.spec_bytes()); }
+            }
+        }
+        if let Some(first) = owners[slot] {
+            if compare_bytes(seeds[first].node.as_str().as_bytes(), seeds[at].node.as_str().as_bytes()) != 0 {
+                return Some((first, at));
+            }
+        } else {
+            owners[slot] = Some(at);
+        }
+        at += 1;
+    }
+    assert forall|left: int, right: int| 0 <= left < right < seeds.len()
+        && seeds@[left].key().0 == seeds@[right].key().0 implies
+        seeds@[left].key().1 == seeds@[right].key().1 by {
+        let id = ids@[left].spec_bytes();
+        assert(name_members(ids@).contains(id));
+        let slot = choose|i: int| 0 <= i < names.len() && names@[i].spec_bytes() == id;
+        assert(names@[slot].spec_bytes() == seeds@[right].key().0);
+    }
+    None
+}
+
 /// 按完整 ID 借用首个起点；未找到时不提供替代起点。
 pub fn seed_by_id<'a>(seeds: &'a [Seed], id: &str) -> (out: Option<&'a Seed>)
     ensures
