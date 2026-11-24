@@ -14,4 +14,4 @@
 
 ## 本仓验证
 
-产品位于 [`crates/judge-filemap`](../crates/judge-filemap)。原生测试位于 [`crates/judge-filemap-tests`](../crates/judge-filemap-tests)。在仓库根目录运行 `mise exec -- ./check.sh` 执行本仓的检查。
+产品位于 [`crates/judge-filemap`](../crates/judge-filemap)。原生测试位于 [`crates/judge-filemap-tests`](../crates/judge-filemap-tests)。在仓库根目录运行 `mise exec -- ./check.sh` 按 Git 变更选择本仓的图与键比较证明、独立边界预期和原生测试。GitHub 汇总读取固定候选的单元原件。
