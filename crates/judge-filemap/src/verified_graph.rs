@@ -3701,6 +3701,154 @@ impl<'t, 'a> Iterator for SeedPropagations<'t, 'a> {
     }
 }
 
+/// The caller publishes each completed predecessor tree while the graph fold keeps only current rows.
+pub trait PredecessorSink {
+    fn record(&mut self, seed: &Seed, tree: PredecessorTree);
+}
+
+pub struct GraphCauses {
+    pub nodes: BTreeMap<usize, CauseSet>,
+    pub edges: BTreeMap<Edge, CauseSet>,
+}
+
+pub open spec fn seed_order(t: &Topology, i: int) -> Seq<usize> {
+    fifo(t.indices.rows@, t.indices.roots@[i]).2
+}
+
+pub open spec fn seed_edges(t: &Topology, i: int) -> Set<Edge> {
+    let order = seed_order(t, i);
+    Set::new(|edge: Edge| exists|k: int| 0 <= k < order.len()
+        && outgoing_members(t.edge_rows@[#[trigger] order[k] as int]@).contains(edge))
+}
+
+proof fn propagation_members(item: &SeedPropagation, t: &Topology, seeds: Seq<Seed>, i: int)
+    requires seed_propagation_matches(*item, t, seeds, i),
+    ensures row_indices(item.propagation.rows@) == seed_order(t, i).to_set(),
+        row_edges(item.propagation.rows@) == seed_edges(t, i),
+{
+    let rows = item.propagation.rows@;
+    let order = seed_order(t, i);
+    assert(rows.map_values(|r: ReachedRow| r.index) =~= order);
+    assert forall|edge: Edge| row_edges(rows).contains(edge) == seed_edges(t, i).contains(edge) by {
+        if row_edges(rows).contains(edge) {
+            let k = choose|k: int| 0 <= k < rows.len()
+                && outgoing_members((#[trigger] rows[k]).outgoing@).contains(edge);
+            assert(rows[k].outgoing@ == t.edge_rows@[order[k] as int]@);
+        } else if seed_edges(t, i).contains(edge) {
+            let k = choose|k: int| 0 <= k < order.len()
+                && outgoing_members(t.edge_rows@[#[trigger] order[k] as int]@).contains(edge);
+            assert(rows[k].outgoing@ == t.edge_rows@[order[k] as int]@);
+        }
+    }
+    assert(row_edges(rows) =~= seed_edges(t, i));
+}
+
+pub open spec fn all_causes<K>(seeds: Seq<Seed>, end: int, members: spec_fn(int) -> Set<K>, key: K) -> Set<Seq<u8>> {
+    Set::new(|id: Seq<u8>| exists|i: int| 0 <= i < end && (#[trigger] members(i)).contains(key)
+        && seeds[i].key().0 == id)
+}
+
+pub open spec fn all_members<K>(end: int, members: spec_fn(int) -> Set<K>) -> Set<K> {
+    Set::new(|key: K| exists|i: int| 0 <= i < end && (#[trigger] members(i)).contains(key))
+}
+
+proof fn next_members<K>(end: int, members: spec_fn(int) -> Set<K>)
+    requires 0 <= end,
+    ensures all_members(end + 1, members) == all_members(end, members) + members(end),
+{
+    assert forall|key: K| all_members(end + 1, members).contains(key)
+        == (all_members(end, members).contains(key) || members(end).contains(key)) by {
+        if all_members(end + 1, members).contains(key) {
+            let i = choose|i: int| 0 <= i < end + 1 && (#[trigger] members(i)).contains(key);
+            if i < end { assert(all_members(end, members).contains(key)); }
+        } else if all_members(end, members).contains(key) {
+            let i = choose|i: int| 0 <= i < end && (#[trigger] members(i)).contains(key);
+            assert(0 <= i < end + 1);
+        }
+    }
+    assert(all_members(end + 1, members) =~= all_members(end, members) + members(end));
+}
+
+proof fn next_causes<K>(seeds: Seq<Seed>, end: int, members: spec_fn(int) -> Set<K>, key: K)
+    requires 0 <= end < seeds.len(),
+    ensures all_causes(seeds, end + 1, members, key) == all_causes(seeds, end, members, key)
+        + if members(end).contains(key) { set![seeds[end].key().0] } else { Set::empty() },
+{
+    let added = if members(end).contains(key) { set![seeds[end].key().0] } else { Set::empty() };
+    assert forall|id: Seq<u8>| all_causes(seeds, end + 1, members, key).contains(id)
+        == (all_causes(seeds, end, members, key).contains(id) || added.contains(id)) by {
+        if all_causes(seeds, end + 1, members, key).contains(id) {
+            let i = choose|i: int| 0 <= i < end + 1 && (#[trigger] members(i)).contains(key)
+                && seeds[i].key().0 == id;
+            if i < end { assert(all_causes(seeds, end, members, key).contains(id)); }
+        } else if all_causes(seeds, end, members, key).contains(id) {
+            let i = choose|i: int| 0 <= i < end && (#[trigger] members(i)).contains(key)
+                && seeds[i].key().0 == id;
+            assert(0 <= i < end + 1);
+        }
+    }
+    assert(all_causes(seeds, end + 1, members, key) =~= all_causes(seeds, end, members, key) + added);
+}
+
+/// Fold the actual indexed FIFO results of all supplied seeds, preserving sparse maps and streaming trees.
+pub fn collect_causes(t: &Topology, seeds: &[Seed], sink: &mut impl PredecessorSink) -> (out: GraphCauses)
+    requires seed_topology_matches(t, seeds@),
+    ensures
+        out.nodes@.dom() == all_members(seeds.len() as int, |i: int| seed_order(t, i).to_set()),
+        out.edges@.dom() == all_members(seeds.len() as int, |i: int| seed_edges(t, i)),
+        forall|node: usize| #[trigger] node_causes(out.nodes@, node) == all_causes(seeds@,
+            seeds.len() as int, |i: int| seed_order(t, i).to_set(), node),
+        forall|edge: Edge| #[trigger] edge_causes(out.edges@, edge) == all_causes(seeds@,
+            seeds.len() as int, |i: int| seed_edges(t, i), edge),
+{
+    let mut nodes = BTreeMap::new();
+    let mut edges = BTreeMap::new();
+    let mut propagations = SeedPropagations::new(t, seeds);
+    let ghost visits = |i: int| seed_order(t, i).to_set();
+    let ghost outgoing = |i: int| seed_edges(t, i);
+    loop
+        invariant visits == (|i: int| seed_order(t, i).to_set()), outgoing == (|i: int| seed_edges(t, i)),
+            propagations.graph() == t, propagations.seed_values() == seeds@,
+            propagations.cursor() <= seeds.len(),
+            nodes@.dom() == all_members(propagations.cursor() as int, visits),
+            edges@.dom() == all_members(propagations.cursor() as int, outgoing),
+            forall|key: usize| #[trigger] node_causes(nodes@, key)
+                == all_causes(seeds@, propagations.cursor() as int, visits, key),
+            forall|key: Edge| #[trigger] edge_causes(edges@, key)
+                == all_causes(seeds@, propagations.cursor() as int, outgoing, key),
+        decreases seeds.len() - propagations.cursor(),
+    {
+        let ghost at = propagations.cursor() as int;
+        let item = match propagations.next() { Some(item) => item, None => {
+            assert(at == seeds.len());
+            return GraphCauses { nodes, edges };
+        }};
+        proof { propagation_members(&item, t, seeds@, at); }
+        assert(row_indices(item.propagation.rows@) == visits(at));
+        assert(row_edges(item.propagation.rows@) == outgoing(at));
+        let cause = item.seed.id.as_str();
+        assert(cause.spec_bytes() == seeds@[at].key().0);
+        let ghost old_nodes = nodes@;
+        let ghost old_edges = edges@;
+        merge_propagation(&mut nodes, &mut edges, &item.propagation.rows, cause);
+        proof {
+            next_members(at, visits);
+            next_members(at, outgoing);
+            assert forall|key: usize| #[trigger] node_causes(nodes@, key)
+                == all_causes(seeds@, at + 1, visits, key) by {
+                next_causes(seeds@, at, visits, key);
+                assert(node_causes(old_nodes, key) == all_causes(seeds@, at, visits, key));
+            }
+            assert forall|key: Edge| #[trigger] edge_causes(edges@, key)
+                == all_causes(seeds@, at + 1, outgoing, key) by {
+                next_causes(seeds@, at, outgoing, key);
+                assert(edge_causes(old_edges, key) == all_causes(seeds@, at, outgoing, key));
+            }
+        }
+        sink.record(item.seed, item.propagation.predecessors);
+    }
+}
+
 /// 按完整 ID 借用首个起点；未找到时不提供替代起点。
 pub fn seed_by_id<'a>(seeds: &'a [Seed], id: &str) -> (out: Option<&'a Seed>)
     ensures
