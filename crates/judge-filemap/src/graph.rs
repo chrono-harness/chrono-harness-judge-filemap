@@ -212,7 +212,19 @@ impl crate::verified_graph::PredecessorSink for BTreeMap<String, PredecessorTree
         self.insert(seed.id.clone(), tree);
     }
 }
-pub fn closure(edges: &[UnionEdge], seeds: &[Seed]) -> Closure {
+/// Each ID identifies one root in the public predecessor dictionary.
+pub fn closure(edges: &[UnionEdge], seeds: &[Seed]) -> Result<Closure, String> {
+    if let Some((first, second)) = crate::verified_graph::conflicting_seed_roots(seeds) {
+        return Err(format!(
+            "E_SEED_ID_CONFLICT: seed ID {:?} refers to both {:?} and {:?}",
+            seeds[first].id, seeds[first].node, seeds[second].node
+        ));
+    }
+    Ok(closure_for_bound_roots(edges, seeds))
+}
+
+/// The impact producer encodes the root node in every ID. Public callers first check this binding.
+pub(crate) fn closure_for_bound_roots(edges: &[UnionEdge], seeds: &[Seed]) -> Closure {
     let topology = crate::verified_graph::seed_topology(edges, seeds);
     let mut predecessors = BTreeMap::new();
     let causes = crate::verified_graph::collect_causes(&topology, seeds, &mut predecessors);
@@ -253,7 +265,7 @@ pub fn query_closure(input: impl std::io::Read) -> Result<serde_json::Value, Str
     }
     let request: Input = serde_json::from_reader(input).map_err(|e| e.to_string())?;
     let edges = union(&request.base, &request.candidate);
-    let result = closure(&edges, &request.seeds);
+    let result = closure(&edges, &request.seeds)?;
     let selected = result.selected_tests();
     let reached: Vec<_> = result.reached.keys().collect();
     let mut response = serde_json::json!({"selected_tests":selected,"reached":reached});

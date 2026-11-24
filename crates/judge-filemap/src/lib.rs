@@ -227,7 +227,7 @@ pub fn produce(
         verified_graph::insert_edge_seeds(&mut seeds, &graph::JsonSeedId, e, &reference);
     }
     let seeds: Vec<_> = seeds.into_iter().collect();
-    let closure = graph::closure(&edges, &seeds);
+    let closure = graph::closure_for_bound_roots(&edges, &seeds);
     let definitions = |view: Option<&NodeView>| {
         view.into_iter()
             .flat_map(|v| &v.definitions)
