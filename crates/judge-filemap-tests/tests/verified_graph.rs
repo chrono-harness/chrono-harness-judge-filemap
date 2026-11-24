@@ -1504,6 +1504,31 @@ fn traversed(from: &str, kind: policy::EdgeKind, to: &str, cause: &str) -> (out:
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn report_witnesses_keep_the_matching_kind_target_and_input_order() {
+    use policy::EdgeKind::*;
+    proof {
+        reveal_strlit("a"); reveal_strlit("aa");
+        vstd::utf8::is_ascii_chars_encode_utf8("a"@);
+        vstd::utf8::is_ascii_chars_encode_utf8("aa"@);
+        assert("a".spec_bytes().len() == 1 && "aa".spec_bytes().len() == 2);
+    }
+    let rows = vec![
+        traversed("last", TestExecution, "a", "p"),
+        traversed("judge", JudgeTrigger, "a", "p"),
+        traversed("other", TestExecution, "aa", "p"),
+        traversed("first", TestExecution, "a", "q"),
+    ];
+    let tests = policy::target_edges(&rows, TestExecution, "a");
+    let judges = policy::target_edges(&rows, JudgeTrigger, "a");
+    let none = policy::target_edges(&rows, Compile, "a");
+    proof { reveal_with_fuel(policy::matching_edges, 5); }
+    expect(tests.len() == 2);
+    expect(tests[0] == rows[0].edge && tests[1] == rows[3].edge);
+    expect(judges.len() == 1 && judges[0] == rows[1].edge);
+    expect(none.len() == 0);
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn selection_rejects_every_nonexecution_kind_and_empty_inventory() {
     let empty: Vec<policy::TraversedEdge> = vec![];
     let no_targets = policy::selected_test_targets(&empty);
