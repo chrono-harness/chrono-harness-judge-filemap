@@ -160,8 +160,8 @@ pub fn produce(
     let mut seeds = BTreeSet::new();
     verified_graph::insert_delta_seeds(&mut seeds, delta, &graph::JsonSeedId);
     for id in a.keys().chain(b.keys()).collect::<BTreeSet<_>>() {
-        let av = a.get(id);
-        let bv = b.get(id);
+        let av = a.get(id).map(|r| &r.record);
+        let bv = b.get(id).map(|r| &r.record);
         let mut fields = vec![];
         records::changed_fields(av.map(|r| &r.value), bv.map(|r| &r.value), "", &mut fields);
         // Registry relocation is an input change even when the record's value is identical.
@@ -252,6 +252,50 @@ pub fn produce(
             )
         })
         .collect();
+    // Stable impact keys identify seeds across endpoints. A wire finding points
+    // into the fixed input that supplied its seed, including base-only records.
+    let finding_reference = |seed: &Seed, endpoint: &str| -> String {
+        if seed.reference.starts_with("/records/") {
+            let base = ("base", a.get(&seed.reference));
+            let candidate = ("candidate", b.get(&seed.reference));
+            let ordered = if endpoint == "base" {
+                [base, candidate]
+            } else {
+                [candidate, base]
+            };
+            let sources = || {
+                ordered
+                    .iter()
+                    .filter_map(|&(side, row)| row.map(|r| (side, r)))
+            };
+            if let Some((_, record)) =
+                sources().find(|(_, r)| delta.iter().any(|d| d.path == r.record.path))
+            {
+                return record.record.path.clone();
+            }
+            let (side, record) = sources()
+                .find(|(_, r)| r.record.targets.contains(&seed.node))
+                .or_else(|| sources().next())
+                .expect("seed has a record at one endpoint");
+            return format!("/registries/{side}{}", record.pointer);
+        }
+        if let Some(row) = seed
+            .reference
+            .strip_prefix("/impact/workflow")
+            .and_then(|pointer| workflow.pointer(pointer))
+        {
+            let side = row["endpoint"].as_str().unwrap();
+            let pointer = row["pointer"].as_str().unwrap();
+            let origin = if side == "base" { base } else { candidate };
+            if origin.workflow()["schema_version"].as_u64()
+                == Some(origin.original_schemas()["workflow"].1)
+            {
+                return format!("/registries/{side}/workflow{pointer}");
+            }
+            return format!("/registries/{side}/workflow");
+        }
+        seed.reference.clone() // direct DELTA path
+    };
     let mut historical_context = vec![];
     let mut historical_ambiguities = vec![];
     for (endpoint, inventory) in [("base", an), ("candidate", bn)] {
@@ -290,7 +334,7 @@ pub fn produce(
                         "{endpoint}: ambiguous node {node}: {:?}",
                         ambiguity.definitions
                     ),
-                    delta_refs: vec![seed.reference.clone()],
+                    delta_refs: vec![finding_reference(seed, endpoint)],
                     causes: witness,
                 });
             } else {
@@ -359,7 +403,7 @@ pub fn produce(
                         .into(),
                         level: "error".into(),
                         message: format!("{endpoint}: {message}: {edge:?}"),
-                        delta_refs: vec![seed.reference.clone()],
+                        delta_refs: vec![finding_reference(seed, endpoint)],
                         causes: witness,
                     });
                 } else {

@@ -10,6 +10,11 @@ pub struct Record {
     pub targets: BTreeSet<String>,
     pub value: Value,
 }
+/// Keep the input location only while producing findings.
+pub(crate) struct InputRecord {
+    pub record: Record,
+    pub pointer: String,
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RecordPair {
     pub base: Option<Record>,
@@ -73,23 +78,8 @@ pub fn inventory(
     r: &Endpoint,
     nodes: &BTreeMap<String, NodeView>,
     effective_environment: Option<&BTreeMap<String, String>>,
-) -> BTreeMap<String, Record> {
+) -> BTreeMap<String, InputRecord> {
     let mut out = BTreeMap::new();
-    let mut add = |scope: &str,
-                   collection: &str,
-                   key: &str,
-                   path: &str,
-                   value: &Value,
-                   targets: BTreeSet<String>| {
-        out.insert(
-            format!("/records/{scope}/{collection}/{}", escape(key)),
-            Record {
-                path: path.into(),
-                value: normalize(value, collection),
-                targets,
-            },
-        );
-    };
     for (scope, value, path) in [
         // The policy record points at the effective target's real path.  The
         // request/registration entry path remains available through the
@@ -116,6 +106,25 @@ pub fn inventory(
             r.config()["registries"]["workflow"].as_str().unwrap(),
         ),
     ] {
+        let converted = value["schema_version"].as_u64() != Some(r.original_schemas()[scope].1);
+        let mut add = |collection: &str, key: &str, pointer: String, entry: &Value, targets| {
+            out.insert(
+                format!("/records/{scope}/{collection}/{}", escape(key)),
+                InputRecord {
+                    // Converted records may have no field at this location in the original.
+                    pointer: if converted {
+                        format!("/{scope}")
+                    } else {
+                        format!("/{scope}{pointer}")
+                    },
+                    record: Record {
+                        path: path.into(),
+                        targets,
+                        value: normalize(entry, collection),
+                    },
+                },
+            );
+        };
         for (key, v) in value.as_object().unwrap() {
             let identity = match (scope, key.as_str()) {
                 ("filemap", "files") => Some(("path", "file")),
@@ -129,7 +138,7 @@ pub fn inventory(
                 _ => None,
             };
             if let Some((id, prefix)) = identity {
-                for row in v.as_array().unwrap() {
+                for (index, row) in v.as_array().unwrap().iter().enumerate() {
                     let id = row[id].as_str().unwrap();
                     let target = if !prefix.is_empty() {
                         format!("{prefix}:{id}")
@@ -182,7 +191,7 @@ pub fn inventory(
                             targets.extend(tests.iter().cloned());
                         }
                     }
-                    add(scope, key, id, path, row, targets);
+                    add(key, id, format!("/{key}/{index}"), row, targets);
                 }
             } else if scope == "config" && key == "execution_units" {
                 // Ownership and shared-operation changes seed only explicitly
@@ -203,7 +212,13 @@ pub fn inventory(
                             nodes,
                         ));
                     }
-                    add(scope, "units", unit, path, definition, targets);
+                    add(
+                        "units",
+                        unit,
+                        format!("/execution_units/units/{}", escape(unit)),
+                        definition,
+                        targets,
+                    );
                 }
                 for (operation, owners) in v["shared_operations"].as_object().into_iter().flatten()
                 {
@@ -227,14 +242,23 @@ pub fn inventory(
                             ));
                         }
                     }
-                    add(scope, "shared_operations", operation, path, owners, targets);
+                    add(
+                        "shared_operations",
+                        operation,
+                        format!("/execution_units/shared_operations/{}", escape(operation)),
+                        owners,
+                        targets,
+                    );
                 }
                 for field in ["collection_limits", "report_path"] {
                     add(
-                        scope,
                         "execution_units",
                         field,
-                        path,
+                        if v.get(field).is_some() {
+                            format!("/{key}/{field}")
+                        } else {
+                            format!("/{key}")
+                        },
                         &v[field],
                         BTreeSet::from([format!("file:{path}")]),
                     );
@@ -249,17 +273,26 @@ pub fn inventory(
                         .collect()
                 };
                 for field in ["max_running", "resources"] {
-                    add(scope, key, field, path, &v[field], all_targets());
+                    add(
+                        key,
+                        field,
+                        if v.get(field).is_some() {
+                            format!("/{key}/{field}")
+                        } else {
+                            format!("/{key}")
+                        },
+                        &v[field],
+                        all_targets(),
+                    );
                 }
                 if v["priority"]
                     .as_array()
                     .is_some_and(|priority| !priority.is_empty())
                 {
                     add(
-                        scope,
                         key,
                         "priority",
-                        path,
+                        format!("/{key}/priority"),
                         &json!({"priority":v["priority"]}),
                         all_targets(),
                     );
@@ -280,23 +313,28 @@ pub fn inventory(
                         })
                         .flat_map(|(test, plan)| plan_targets(test, Some(plan), nodes))
                         .collect();
-                    add(scope, "execution_claims", operation, path, claims, targets);
+                    add(
+                        "execution_claims",
+                        operation,
+                        format!("/{key}/claims/{}", escape(operation)),
+                        claims,
+                        targets,
+                    );
                 }
             } else if scope == "filemap" && key == "execution_plans" {
                 for (test, plan) in v.as_object().unwrap() {
                     let targets = plan_targets(test, Some(plan), nodes);
-                    add(scope, key, test, path, plan, targets);
+                    add(key, test, format!("/{key}/{}", escape(test)), plan, targets);
                 }
             } else if scope == "filemap" && key == "project_edges" {
-                for edge in v.as_array().unwrap() {
+                for (index, edge) in v.as_array().unwrap().iter().enumerate() {
                     let id =
                         serde_json::to_string(&json!([edge["from"], edge["kind"], edge["to"]]))
                             .unwrap();
                     add(
-                        scope,
                         key,
                         &id,
-                        path,
+                        format!("/{key}/{index}"),
                         edge,
                         BTreeSet::from([
                             edge["from"].as_str().unwrap().into(),
@@ -317,10 +355,10 @@ pub fn inventory(
                             targets.insert(format!("test:{}", t["test"].as_str().unwrap()));
                         }
                     }
-                    add(scope, key, id, path, cost, targets);
+                    add(key, id, format!("/{key}/{}", escape(id)), cost, targets);
                 }
             } else if scope == "projects" && key == "owners" {
-                for owner in v.as_array().unwrap() {
+                for (index, owner) in v.as_array().unwrap().iter().enumerate() {
                     let id = owner.as_str().unwrap();
                     let targets = r.filemap()["files"]
                         .as_array()
@@ -329,16 +367,15 @@ pub fn inventory(
                         .filter(|f| f["owner"] == id)
                         .map(|f| format!("file:{}", f["path"].as_str().unwrap()))
                         .collect();
-                    add(scope, key, id, path, owner, targets);
+                    add(key, id, format!("/{key}/{index}"), owner, targets);
                 }
             } else if scope == "config" && key == "environment" {
-                for input in v["inputs"].as_array().unwrap() {
+                for (index, input) in v["inputs"].as_array().unwrap().iter().enumerate() {
                     let id = input["id"].as_str().unwrap();
                     add(
-                        scope,
                         "inputs",
                         id,
-                        path,
+                        format!("/environment/inputs/{index}"),
                         input,
                         BTreeSet::from([format!("input:{id}")]),
                     );
@@ -357,20 +394,18 @@ pub fn inventory(
                         value["effective"] = json!(effective.get(name));
                     }
                     add(
-                        scope,
                         "environment",
                         name,
-                        path,
+                        format!("/{key}"),
                         &value,
                         BTreeSet::from([format!("environment:{name}")]),
                     );
                 }
             } else {
                 add(
-                    scope,
                     "fields",
                     key,
-                    path,
+                    format!("/{}", escape(key)),
                     v,
                     BTreeSet::from([format!("file:{path}")]),
                 );
