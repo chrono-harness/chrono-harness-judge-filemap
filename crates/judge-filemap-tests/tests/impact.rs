@@ -970,6 +970,81 @@ fn file_origin_project_edge_change_points_to_its_actual_record() {
     );
 }
 #[test]
+fn workflow_delta_selects_both_schemas_deleted_rules_and_rejects_foreign_paths() {
+    let mut endpoints = views("standard", "standard");
+    let rules = |paths: &[&str]| Ok(json!({"rule_paths":paths}));
+    let (same, _) = produce(&endpoints, &[], rules(&[]));
+    assert_eq!(same.workflow["integration_required"], false);
+    assert_eq!(same.workflow["requirements"], json!([]));
+
+    let workflow = ".chrono-harness/workflow.json";
+    let old_path = ".chrono-harness/FILEMAP.json";
+    let new_path = ".chrono-harness/new-filemap.json";
+    endpoints.base.workflow["stability"] =
+        json!([{"id":"removed","paths":["src.bin"],"tests":["t"]}]);
+    for r in [&mut endpoints.base, &mut endpoints.candidate] {
+        r.workflow["migrations"] = json!([
+            {"id":"active","from_version":1,"to_version":2,"test":"t"},
+            {"id":"unrelated","from_version":3,"to_version":2,"test":"absent-test"}
+        ]);
+        r.workflow["integration"]["tests"] = json!(["t"]);
+    }
+    endpoints
+        .candidate
+        .original_schemas
+        .insert("filemap".into(), (new_path.into(), 2));
+    let changes = [delta("src.bin"), delta(workflow), delta("rules.md")];
+    let (impact, _) = produce(&endpoints, &changes, rules(&["rules.md"]));
+    assert_eq!(impact.workflow["integration_required"], true);
+    assert_eq!(
+        impact.workflow["schema_transitions"],
+        json!([{
+            "registry":"filemap", "before":{"path":old_path,"version":1},
+            "after":{"path":new_path,"version":2}
+        }])
+    );
+    let rows = impact.workflow["requirements"].as_array().unwrap();
+    let reasons: Vec<_> = rows
+        .iter()
+        .map(|r| {
+            (
+                r["endpoint"].as_str().unwrap(),
+                r["reason"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        reasons,
+        [
+            ("base", "schema-migration"),
+            ("candidate", "schema-migration"),
+            ("base", "stability"),
+            ("base", "integration"),
+            ("candidate", "integration")
+        ]
+    );
+    assert_eq!(rows[0]["trigger_paths"], json!([old_path, new_path]));
+    assert_eq!(rows[2]["trigger_paths"], json!([workflow, "src.bin"]));
+    for row in rows {
+        assert_eq!(row["tests"], json!(["test:t"]));
+    }
+    assert_eq!(
+        impact.workflow["trigger_paths"],
+        json!([old_path, new_path, workflow, "rules.md", "src.bin"])
+    );
+    let wire = serde_json::to_vec(&impact).unwrap();
+    let summary = chrono_judge_filemap::impact_summary(wire.as_slice()).unwrap();
+    assert_eq!(summary["tests"], json!(["test:t"]));
+    let (denied, findings) = produce(&endpoints, &changes, rules(&["rules.md", "foreign"]));
+    assert!(denied.workflow.is_null());
+    assert_eq!(findings[0].code, "E_WORKFLOW_INPUT");
+    assert_eq!(
+        findings[0].message,
+        "classification returned a rule path outside DELTA"
+    );
+}
+
+#[test]
 fn generated_workflow_edge_finding_names_its_fixed_stability_rule() {
     let mut endpoints = views("standard", "standard");
     endpoints.candidate.workflow["stability"] =

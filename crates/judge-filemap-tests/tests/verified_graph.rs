@@ -26,6 +26,39 @@ fn expect(actual: bool)
     if !actual { panic!(); }
 }
 
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn workflow_selection_keeps_the_exact_endpoint_and_delta_paths() {
+    use policy::workflow_paths::*;
+    let delta = schema_paths(2usize, 5usize, 1, 2);
+    let same = schema_paths(2usize, 5usize, 1, 1);
+    let same_empty = same.is_empty(); expect(same_empty);
+    let accepted = admit_rules(&delta, &[2,5,2]); expect(accepted);
+    let denied = admit_rules(&delta, &[5,7]); expect(!denied);
+    let migration = migration_applies(1,2,Some(1),Some(2),true); expect(migration);
+    let wrong = migration_applies(1,2,Some(2),Some(1),true); expect(!wrong);
+    let absent = migration_applies(1,2,None,Some(2),true); expect(!absent);
+    let no_test = migration_applies(1,2,Some(1),Some(2),false); expect(!no_test);
+    let stable = stability_paths(&delta, &[2,7,2], 9, false);
+    let changed = stability_paths(&delta, &[2,7,2], 9, true);
+    assert(stable@ =~= set![2usize]);
+    let only_match = stable.contains(&2usize); expect(only_match);
+    let registry_missing = stable.contains(&9usize); expect(!registry_missing);
+    let registry_included = changed.contains(&9usize); expect(registry_included);
+    let mut paths = same;
+    let disabled = integration_required(&mut paths,false,false,&[2,5]); expect(!disabled);
+    let base_rules = [5usize, 5usize];
+    assert(base_rules@.to_set() =~= set![5usize]);
+    let from_base = integration_required(&mut paths,true,false,&base_rules);
+    assert(paths@.contains(5usize)); expect(from_base);
+    let candidate_rules = [2usize];
+    assert(candidate_rules@.to_set() =~= set![2usize]);
+    let from_candidate = integration_required(&mut paths,false,true,&candidate_rules);
+    assert(paths@.contains(2usize)); expect(from_candidate);
+    let first = paths.contains(&5usize); expect(first);
+    let second = paths.contains(&2usize); expect(second);
+    assert(paths@ =~= set![2usize, 5usize]);
+}
+
 /// Bits name File, Project, Script, Input, Test, Judge, Tool and Environment.
 fn check_type_row(kind: policy::EdgeKind, from: policy::EndpointRole, mask: u8)
     requires
