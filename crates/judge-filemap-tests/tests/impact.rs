@@ -342,13 +342,8 @@ fn reached_dangling_and_changed_invalid_types_fail_but_disconnected_history_is_c
     let (i, f) = run("dangling", "wrong_source", &[delta(FM)]);
     assert!(f.iter().any(|f| f.code == "E_EDGE_TYPE"));
     for f in f {
-        let reference = &f.delta_refs[0];
-        assert!(i.records.contains_key(reference) || reference == FM);
-        let seed = i
-            .seed_causes
-            .iter()
-            .find(|s| &s.reference == reference && s.node == f.causes[0]);
-        assert!(seed.is_some());
+        assert_eq!(f.delta_refs, [FM]);
+        assert!(i.seed_causes.iter().any(|seed| seed.node == f.causes[0]));
     }
 }
 #[test]
@@ -967,9 +962,36 @@ fn predecessor_witness_rejects_serialized_cycles_missing_rows_and_wrong_targets(
 fn file_origin_project_edge_change_points_to_its_actual_record() {
     let (i, f) = run("standard", "invalid_file_edge", &[delta(FM)]);
     let finding = f.iter().find(|f| f.code == "E_EDGE_TYPE").unwrap();
-    assert!(finding.delta_refs[0].starts_with("/records/filemap/project_edges/"));
-    assert!(i.changes.iter().any(|c| c.record == finding.delta_refs[0]));
+    assert_eq!(finding.delta_refs, [FM]);
+    assert!(
+        i.changes
+            .iter()
+            .any(|c| c.record.starts_with("/records/filemap/project_edges/"))
+    );
 }
+#[test]
+fn generated_workflow_edge_finding_names_its_fixed_stability_rule() {
+    let mut endpoints = views("standard", "standard");
+    endpoints.candidate.workflow["stability"] =
+        json!([{"id":"hold","paths":["src.bin"],"tests":["missing"]}]);
+    let changes = [delta("src.bin")];
+    let (impact, findings) = produce(&endpoints, &changes, classification(&changes));
+    let finding = findings
+        .iter()
+        .find(|f| f.code == "E_DANGLING_EDGE")
+        .unwrap();
+    assert_eq!(
+        finding.delta_refs,
+        ["/registries/candidate/workflow/stability/0"]
+    );
+    assert!(
+        impact
+            .seed_causes
+            .iter()
+            .any(|s| s.reference.starts_with("/impact/workflow/requirements/"))
+    );
+}
+
 #[test]
 fn file_edge_only_removal_and_addition_preserve_targets() {
     let (i, f) = run("standard", "removed_file_edge", &[delta(FM)]);
@@ -1041,8 +1063,22 @@ fn removed_test_record_seeds_alias_and_exposes_retained_dangling_edge() {
     );
     assert_eq!(f.len(), 1);
     assert_eq!(f[0].code, "E_DANGLING_EDGE");
-    assert_eq!(f[0].delta_refs, ["/records/projects/projects/t"]);
+    assert_eq!(f[0].delta_refs, [PROJECTS]);
     assert_eq!(f[0].causes, ["test:t"]);
+    // Registry selection can change even when the selected file is outside DELTA.
+    let (impact, findings) = run("standard", "removed_test", &[]);
+    assert_eq!(findings.len(), 1);
+    let original = views("standard", "removed_test");
+    let pointer = findings[0].delta_refs[0]
+        .strip_prefix("/registries/base/projects")
+        .unwrap();
+    assert_eq!(original.base.projects.pointer(pointer).unwrap()["id"], "t");
+    assert!(
+        impact
+            .seed_causes
+            .iter()
+            .any(|s| s.reference == "/records/projects/projects/t")
+    );
     let (i, f) = run(
         "standard",
         "removed_test",

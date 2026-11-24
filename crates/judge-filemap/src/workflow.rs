@@ -3,7 +3,7 @@ use crate::Delta;
 use crate::registration::Endpoint;
 use crate::{
     graph::{Edge, EdgeKind},
-    records::Record,
+    records::InputRecord,
 };
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -12,7 +12,7 @@ pub fn select(
     a: &Endpoint,
     b: &Endpoint,
     delta: &[Delta],
-    records: [&BTreeMap<String, Record>; 2],
+    records: [&BTreeMap<String, InputRecord>; 2],
     changes: Value,
 ) -> Result<Value, String> {
     let changed_paths: BTreeSet<_> = delta.iter().map(|d| d.path.as_str()).collect();
@@ -70,8 +70,12 @@ pub fn select(
                 "/records/workflow/stability/{}",
                 crate::records::escape(row["id"].as_str().unwrap())
             );
-            let changed = records[0].get(&record).map(|r| (&r.path, &r.value))
-                != records[1].get(&record).map(|r| (&r.path, &r.value));
+            let changed = records[0]
+                .get(&record)
+                .map(|r| (&r.record.path, &r.record.value))
+                != records[1]
+                    .get(&record)
+                    .map(|r| (&r.record.path, &r.record.value));
             let mut paths: BTreeSet<String> = row["paths"]
                 .as_array()
                 .unwrap()
