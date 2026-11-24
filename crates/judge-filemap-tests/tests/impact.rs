@@ -749,6 +749,32 @@ fn public_closure_rejects_one_id_for_different_roots_and_accepts_a_repeated_root
 }
 
 #[test]
+fn public_predecessor_table_keeps_exact_distinct_ids_and_deserializes_for_path_consumers() {
+    let edge = json!({"from":"A","kind":"test-execution","to":"test:T"});
+    let seed = |id: &str, node: &str, reference: &str| json!({"id":id,"node":node,"reference":reference,"reason":"explicit"});
+    let request = json!({"base":[edge], "candidate":[edge], "reachable_only":false,
+        "seeds":[seed("é","A","one"),seed("e\u{301}","B","two"),seed("","A","three"),
+            seed("é\0","C","four"),seed("é","A","again")]});
+    let value = graph::query_closure(request.to_string().as_bytes()).unwrap();
+    let tree = json!({"A":null,"test:T":edge});
+    assert_eq!(
+        value["closure"]["predecessors"],
+        json!({"":tree,"é":tree,"e\u{301}":{"B":null},"é\0":{"C":null}})
+    );
+    let closure: graph::Closure = serde_json::from_value(value["closure"].clone()).unwrap();
+    let selected = vec![Edge {
+        from: "A".into(),
+        kind: EdgeKind::TestExecution,
+        to: "test:T".into(),
+    }];
+    assert_eq!(closure.witness("é", "test:T"), Some(selected.clone()));
+    assert_eq!(closure.witness("", "test:T"), Some(selected));
+    assert_eq!(closure.witness("e\u{301}", "test:T"), None);
+    assert_eq!(closure.witness("é\0", "C"), Some(vec![]));
+    assert_eq!(closure.witness("missing", "C"), None);
+}
+
+#[test]
 fn cause_state_merges_exact_ids_clones_independently_and_keeps_json_arrays() {
     use graph::CauseSet;
     let mut causes = CauseSet::default();

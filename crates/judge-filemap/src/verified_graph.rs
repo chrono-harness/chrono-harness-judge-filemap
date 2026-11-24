@@ -3855,12 +3855,109 @@ impl<'t, 'a> Iterator for SeedPropagations<'t, 'a> {
     }
 }
 
-/// The caller publishes each completed predecessor tree while the graph fold keeps only current rows.
-pub trait PredecessorSink {
-    fn record(&mut self, seed: &Seed, tree: PredecessorTree);
+/// Public predecessor-table key, ordered by every byte of the seed ID.
+#[cfg_attr(not(verus_keep_ghost), derive(Clone, Debug, serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(verus_keep_ghost), serde(transparent))]
+pub struct PredecessorId(pub String);
+
+impl PredecessorId {
+    pub open spec fn key(&self) -> Seq<u8> { vstd::utf8::encode_utf8(self.0@) }
+    pub open spec fn same(&self, other: &Self) -> bool { self.key() == other.key() }
+    pub open spec fn order_spec(&self, other: &Self) -> Ordering {
+        if self.same(other) { Ordering::Equal }
+        else if byte_lt(self.key(), other.key()) { Ordering::Less }
+        else { Ordering::Greater }
+    }
+    fn compare(&self, other: &Self) -> (order: Ordering)
+        ensures order == self.order_spec(other),
+    {
+        let r = compare_bytes(self.0.as_str().as_bytes(), other.0.as_str().as_bytes());
+        if r < 0 { Ordering::Less } else if r == 0 { Ordering::Equal } else { Ordering::Greater }
+    }
+}
+
+proof fn id_order_laws(a: &PredecessorId, b: &PredecessorId, c: &PredecessorId)
+    ensures (a.order_spec(b) == Ordering::Equal) == a.same(b),
+        (a.order_spec(b) == Ordering::Less) == (b.order_spec(a) == Ordering::Greater),
+        a.order_spec(b) == Ordering::Less && b.order_spec(c) == Ordering::Less
+            ==> a.order_spec(c) == Ordering::Less,
+{
+    byte_order_facts(a.key(), b.key(), c.key());
+}
+
+#[cfg(verus_keep_ghost)]
+impl vstd::std_specs::cmp::PartialEqSpecImpl for PredecessorId {
+    open spec fn obeys_eq_spec() -> bool { true }
+    open spec fn eq_spec(&self, other: &Self) -> bool { self.same(other) }
+}
+
+impl PartialEq for PredecessorId {
+    fn eq(&self, other: &Self) -> (equal: bool)
+        ensures equal == self.same(other),
+    {
+        match self.compare(other) { Ordering::Equal => true, _ => false }
+    }
+}
+
+impl Eq for PredecessorId {}
+
+#[cfg(verus_keep_ghost)]
+impl vstd::std_specs::cmp::OrdSpecImpl for PredecessorId {
+    open spec fn obeys_cmp_spec() -> bool { true }
+    open spec fn cmp_spec(&self, other: &Self) -> Ordering { self.order_spec(other) }
+}
+
+impl Ord for PredecessorId {
+    fn cmp(&self, other: &Self) -> (order: Ordering)
+        ensures order == self.order_spec(other),
+    { self.compare(other) }
+}
+
+#[cfg(verus_keep_ghost)]
+impl vstd::std_specs::cmp::PartialOrdSpecImpl for PredecessorId {
+    open spec fn obeys_partial_cmp_spec() -> bool { true }
+    open spec fn partial_cmp_spec(&self, other: &Self) -> Option<Ordering> {
+        Some(self.order_spec(other))
+    }
+}
+
+impl PartialOrd for PredecessorId {
+    fn partial_cmp(&self, other: &Self) -> (order: Option<Ordering>)
+        ensures order == Some(self.order_spec(other)),
+    { Some(self.compare(other)) }
+}
+
+pub proof fn id_obeys_cmp()
+    ensures vstd::laws_cmp::obeys_cmp::<PredecessorId>(),
+{
+    use vstd::std_specs::cmp::{PartialEqSpec, PartialOrdSpec, OrdSpec};
+    reveal(vstd::laws_eq::obeys_eq_spec_properties);
+    reveal(vstd::laws_cmp::obeys_partial_cmp_spec_properties);
+    reveal(vstd::laws_cmp::obeys_cmp_partial_ord);
+    reveal(vstd::laws_cmp::obeys_cmp_ord);
+    assert forall|a: PredecessorId, b: PredecessorId|
+        a.partial_cmp_spec(&b) == Some(Ordering::Less)
+            <==> b.partial_cmp_spec(&a) == Some(Ordering::Greater) by {
+        id_order_laws(&a, &b, &b);
+    }
+    assert forall|a: PredecessorId, b: PredecessorId, c: PredecessorId|
+        a.partial_cmp_spec(&b) == Some(Ordering::Less)
+            && b.partial_cmp_spec(&c) == Some(Ordering::Less)
+            implies a.partial_cmp_spec(&c) == Some(Ordering::Less) by {
+        id_order_laws(&a, &b, &c);
+    }
+    assert forall|a: PredecessorId, b: PredecessorId, c: PredecessorId|
+        a.partial_cmp_spec(&b) == Some(Ordering::Greater)
+            && b.partial_cmp_spec(&c) == Some(Ordering::Greater)
+            implies a.partial_cmp_spec(&c) == Some(Ordering::Greater) by {
+        id_order_laws(&a, &b, &c);
+        id_order_laws(&b, &c, &a);
+        id_order_laws(&c, &b, &a);
+    }
 }
 
 pub struct GraphCauses {
+    pub predecessors: BTreeMap<PredecessorId, PredecessorTree>,
     pub nodes: BTreeMap<usize, CauseSet>,
     pub edges: BTreeMap<Edge, CauseSet>,
 }
@@ -3944,10 +4041,73 @@ proof fn next_causes<K>(seeds: Seq<Seed>, end: int, members: spec_fn(int) -> Set
     assert(all_causes(seeds, end + 1, members, key) =~= all_causes(seeds, end, members, key) + added);
 }
 
+pub open spec fn predecessor_id(seed: Seed) -> PredecessorId { PredecessorId(seed.id) }
+
+pub open spec fn seed_predecessor_rows(t: &Topology, i: int) -> Set<PredecessorKey> {
+    fifo_predecessors(t.names@, t.edge_rows@, t.indices.rows@, t.indices.roots@[i])
+}
+
+pub open spec fn owns_witness(seeds: Seq<Seed>, end: int, i: int) -> bool {
+    0 <= i < end && forall|later: int| i < later < end
+        && predecessor_id(#[trigger] seeds[later]) == predecessor_id(seeds[i])
+        ==> seeds[later].key().1 == seeds[i].key().1
+}
+
+pub open spec fn witness_table(table: Map<PredecessorId, PredecessorTree>, t: &Topology, seeds: Seq<Seed>, end: int) -> bool {
+    (forall|key: PredecessorId| table.dom().contains(key) <==>
+        exists|i: int| 0 <= i < end && predecessor_id(#[trigger] seeds[i]) == key)
+    && forall|i: int| owns_witness(seeds, end, i) ==> {
+        let key = predecessor_id(#[trigger] seeds[i]);
+        table.dom().contains(key) && predecessor_keys(table[key].view()).to_set() == seed_predecessor_rows(t, i)
+    }
+}
+
+proof fn same_root_rows(t: &Topology, seeds: Seq<Seed>, i: int, j: int)
+    requires seed_topology_matches(t,seeds), 0 <= i < seeds.len(), 0 <= j < seeds.len(),
+        seeds[i].key().1 == seeds[j].key().1,
+    ensures seed_predecessor_rows(t,i) == seed_predecessor_rows(t,j),
+{
+    let a = t.indices.roots@[i];
+    let b = t.indices.roots@[j];
+    assert(t.names@[a as int].spec_bytes() == t.names@[b as int].spec_bytes());
+    if a != b { byte_lt_strict(t.names@[a as int].spec_bytes(), t.names@[b as int].spec_bytes()); }
+}
+
+proof fn publish_witness(table: Map<PredecessorId, PredecessorTree>, t: &Topology, seeds: Seq<Seed>, at: int, tree: PredecessorTree)
+    requires seed_topology_matches(t,seeds), 0 <= at < seeds.len(),
+        witness_table(table,t,seeds,at), predecessor_keys(tree.view()).to_set() == seed_predecessor_rows(t,at),
+    ensures witness_table(table.insert(predecessor_id(seeds[at]),tree),t,seeds,at+1),
+{
+    let key = predecessor_id(seeds[at]);
+    let next = table.insert(key,tree);
+    assert forall|k: PredecessorId| #[trigger] next.dom().contains(k) <==>
+        exists|i: int| 0 <= i < at+1 && predecessor_id(#[trigger] seeds[i]) == k by {
+        if k == key { assert(predecessor_id(seeds[at]) == k); }
+        if next.dom().contains(k) && k != key {
+            let i = choose|i:int| 0 <= i < at && predecessor_id(seeds[i]) == k;
+            assert(predecessor_id(seeds[i]) == k);
+        }
+        if exists|i: int| 0 <= i < at+1 && predecessor_id(seeds[i]) == k {
+            let i = choose|i:int| 0 <= i < at+1 && predecessor_id(seeds[i]) == k;
+            if i < at { assert(table.dom().contains(k)); }
+        }
+    }
+    assert forall|i: int| owns_witness(seeds,at+1,i) implies {
+        let k = predecessor_id(#[trigger] seeds[i]);
+        next.dom().contains(k) && predecessor_keys(next[k].view()).to_set() == seed_predecessor_rows(t,i)
+    } by {
+        if i < at {
+            assert(owns_witness(seeds,at,i));
+            if predecessor_id(seeds[i]) == key { same_root_rows(t,seeds,i,at); }
+        }
+    }
+}
+
 /// Fold the actual indexed FIFO results of all supplied seeds, preserving sparse maps and streaming trees.
-pub fn collect_causes(t: &Topology, seeds: &[Seed], sink: &mut impl PredecessorSink) -> (out: GraphCauses)
+pub fn collect_causes(t: &Topology, seeds: &[Seed]) -> (out: GraphCauses)
     requires seed_topology_matches(t, seeds@),
     ensures
+        witness_table(out.predecessors@,t,seeds@,seeds.len() as int),
         out.nodes@.dom() == all_members(seeds.len() as int, |i: int| seed_order(t, i).to_set()),
         out.edges@.dom() == all_members(seeds.len() as int, |i: int| seed_edges(t, i)),
         forall|node: usize| #[trigger] node_causes(out.nodes@, node) == all_causes(seeds@,
@@ -3955,13 +4115,17 @@ pub fn collect_causes(t: &Topology, seeds: &[Seed], sink: &mut impl PredecessorS
         forall|edge: Edge| #[trigger] edge_causes(out.edges@, edge) == all_causes(seeds@,
             seeds.len() as int, |i: int| seed_edges(t, i), edge),
 {
+    proof { id_obeys_cmp(); }
+    let mut predecessors = BTreeMap::new();
     let mut nodes = BTreeMap::new();
     let mut edges = BTreeMap::new();
     let mut propagations = SeedPropagations::new(t, seeds);
     let ghost visits = |i: int| seed_order(t, i).to_set();
     let ghost outgoing = |i: int| seed_edges(t, i);
     loop
-        invariant visits == (|i: int| seed_order(t, i).to_set()), outgoing == (|i: int| seed_edges(t, i)),
+        invariant seed_topology_matches(t,seeds@), vstd::laws_cmp::obeys_cmp::<PredecessorId>(),
+            witness_table(predecessors@,t,seeds@,propagations.cursor() as int),
+            visits == (|i: int| seed_order(t, i).to_set()), outgoing == (|i: int| seed_edges(t, i)),
             propagations.graph() == t, propagations.seed_values() == seeds@,
             propagations.cursor() <= seeds.len(),
             nodes@.dom() == all_members(propagations.cursor() as int, visits),
@@ -3975,7 +4139,7 @@ pub fn collect_causes(t: &Topology, seeds: &[Seed], sink: &mut impl PredecessorS
         let ghost at = propagations.cursor() as int;
         let item = match propagations.next() { Some(item) => item, None => {
             assert(at == seeds.len());
-            return GraphCauses { nodes, edges };
+            return GraphCauses { nodes, edges, predecessors };
         }};
         proof { propagation_members(&item, t, seeds@, at); }
         assert(row_indices(item.propagation.rows@) == visits(at));
@@ -3999,8 +4163,64 @@ pub fn collect_causes(t: &Topology, seeds: &[Seed], sink: &mut impl PredecessorS
                 assert(edge_causes(old_edges, key) == all_causes(seeds@, at, outgoing, key));
             }
         }
-        sink.record(item.seed, item.propagation.predecessors);
+        proof { publish_witness(predecessors@, t, seeds@, at, item.propagation.predecessors); }
+        let id = PredecessorId(item.seed.id.clone());
+        assert(id == predecessor_id(seeds@[at]));
+        predecessors.insert(id, item.propagation.predecessors);
     }
+}
+
+#[cfg_attr(not(verus_keep_ghost), derive(Clone, Debug, serde::Serialize, serde::Deserialize))]
+pub struct Closure {
+    pub reached: BTreeMap<String, CauseSet>,
+    pub predecessors: BTreeMap<PredecessorId, PredecessorTree>,
+    pub traversed: Vec<TraversedEdge>,
+}
+
+/// The JSON adapter formats graph rows and has no access to the published witness table.
+pub trait ClosureRows {
+    fn materialize(&self, names: &[&str], nodes: BTreeMap<usize, CauseSet>, edges: BTreeMap<Edge, CauseSet>)
+        -> (BTreeMap<String, CauseSet>, Vec<TraversedEdge>);
+}
+
+pub fn publish_closure(t: &Topology, seeds: &[Seed], rows: &impl ClosureRows) -> (out: Closure)
+    requires seed_topology_matches(t,seeds@),
+    ensures witness_table(out.predecessors@,t,seeds@,seeds.len() as int),
+        compatible_seed_ids(seeds@) ==> forall|i:int| 0 <= i < seeds.len() ==> {
+            let key = predecessor_id(#[trigger] seeds@[i as int]);
+            out.predecessors@.dom().contains(key)
+                && predecessor_keys(out.predecessors@[key].view()).to_set() == seed_predecessor_rows(t,i)
+        },
+{
+    let causes = collect_causes(t,seeds);
+    let (reached,traversed) = rows.materialize(&t.names,causes.nodes,causes.edges);
+    let out = Closure { reached, traversed, predecessors: causes.predecessors };
+    proof {
+        if compatible_seed_ids(seeds@) {
+            assert forall|i:int| 0 <= i < seeds.len() implies {
+                let key = predecessor_id(#[trigger] seeds@[i]);
+                out.predecessors@.dom().contains(key)
+                    && predecessor_keys(out.predecessors@[key].view()).to_set() == seed_predecessor_rows(t,i)
+            } by { public_seed_witness(&out,t,seeds@,i); }
+        }
+    }
+    out
+}
+
+pub open spec fn compatible_seed_ids(seeds: Seq<Seed>) -> bool {
+    forall|left: int, right: int| 0 <= left < right < seeds.len()
+        && seeds[left].key().0 == seeds[right].key().0
+        ==> seeds[left].key().1 == seeds[right].key().1
+}
+
+/// For each actually admitted input position the returned public field holds its exact FIFO tree.
+pub proof fn public_seed_witness(out: &Closure, t: &Topology, seeds: Seq<Seed>, i: int)
+    requires 0 <= i < seeds.len(), compatible_seed_ids(seeds),
+        witness_table(out.predecessors@,t,seeds,seeds.len() as int),
+    ensures out.predecessors@.dom().contains(predecessor_id(seeds[i])),
+        predecessor_keys(out.predecessors@[predecessor_id(seeds[i])].view()).to_set() == seed_predecessor_rows(t,i),
+{
+    assert(owns_witness(seeds,seeds.len() as int,i));
 }
 
 /// Return two input positions if a public predecessor key denotes two different roots.
@@ -4009,9 +4229,7 @@ pub fn conflicting_seed_roots(seeds: &[Seed]) -> (out: Option<(usize, usize)>)
         Some((left, right)) => left < right < seeds.len()
             && seeds@[left as int].key().0 == seeds@[right as int].key().0
             && seeds@[left as int].key().1 != seeds@[right as int].key().1,
-        None => forall|left: int, right: int| 0 <= left < right < seeds.len()
-            && seeds@[left].key().0 == seeds@[right].key().0
-            ==> seeds@[left].key().1 == seeds@[right].key().1,
+        None => compatible_seed_ids(seeds@),
     },
 {
     let mut ids: Vec<&str> = Vec::with_capacity(seeds.len());
