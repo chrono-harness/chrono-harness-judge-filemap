@@ -1,6 +1,7 @@
 //! Lower explicit workflow test requirements to typed edges before execution.
 use crate::Delta;
 use crate::registration::Endpoint;
+use crate::verified_graph::workflow_paths;
 use crate::{
     graph::{Edge, EdgeKind},
     records::InputRecord,
@@ -16,24 +17,26 @@ pub fn select(
     changes: Value,
 ) -> Result<Value, String> {
     let changed_paths: BTreeSet<_> = delta.iter().map(|d| d.path.as_str()).collect();
-    let rule_paths: Vec<String> = serde_json::from_value(changes["rule_paths"].clone())
+    let rule_paths: Vec<&str> = serde::Deserialize::deserialize(&changes["rule_paths"])
         .map_err(|e| format!("invalid classify-v1 rule paths: {e}"))?;
-    if rule_paths
-        .iter()
-        .any(|path| !changed_paths.contains(path.as_str()))
-    {
+    if !workflow_paths::admit_rules(&changed_paths, &rule_paths) {
         return Err("classification returned a rule path outside DELTA".into());
     }
     let mut requirements = vec![];
-    let mut triggers = BTreeSet::<String>::new();
+    let mut triggers = BTreeSet::<&str>::new();
     let mut schema_transitions = vec![];
     for (role, (old_path, old_version)) in a.original_schemas() {
         let (new_path, new_version) = &b.original_schemas()[role];
-        if old_version == new_version {
+        let paths = workflow_paths::schema_paths(
+            old_path.as_str(),
+            new_path.as_str(),
+            *old_version,
+            *new_version,
+        );
+        if paths.is_empty() {
             continue;
         }
-        let paths = BTreeSet::from([old_path.clone(), new_path.clone()]);
-        triggers.extend(paths.clone());
+        triggers.extend(paths.iter().copied());
         schema_transitions.push(json!({"registry":role,"before":{"path":old_path,"version":old_version},"after":{"path":new_path,"version":new_version}}));
         for (endpoint, r) in [("base", a), ("candidate", b)] {
             for (i, m) in r.workflow()["migrations"]
@@ -42,10 +45,13 @@ pub fn select(
                 .iter()
                 .enumerate()
             {
-                if m["from_version"] == *old_version
-                    && m["to_version"] == *new_version
-                    && m.get("test").is_some()
-                {
+                if workflow_paths::migration_applies(
+                    *old_version,
+                    *new_version,
+                    m["from_version"].as_u64(),
+                    m["to_version"].as_u64(),
+                    m.get("test").is_some(),
+                ) {
                     requirements.push(requirement(
                         endpoint,
                         r.config()["registries"]["workflow"].as_str().unwrap(),
@@ -76,21 +82,12 @@ pub fn select(
                 != records[1]
                     .get(&record)
                     .map(|r| (&r.record.path, &r.record.value));
-            let mut paths: BTreeSet<String> = row["paths"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|p| p.as_str().unwrap())
-                .filter(|p| changed_paths.contains(p))
-                .map(str::to_string)
-                .collect();
-            if changed {
-                paths.insert(path.into());
-            }
+            let declared: Vec<&str> = serde::Deserialize::deserialize(&row["paths"]).unwrap();
+            let paths = workflow_paths::stability_paths(&changed_paths, &declared, path, changed);
             if paths.is_empty() {
                 continue;
             }
-            triggers.extend(paths.clone());
+            triggers.extend(paths.iter().copied());
             requirements.push(requirement(
                 endpoint,
                 path,
@@ -101,13 +98,12 @@ pub fn select(
             ));
         }
     }
-    if [a, b]
-        .iter()
-        .any(|r| r.workflow()["semantic_changes_require_integration"] == true)
-    {
-        triggers.extend(rule_paths);
-    }
-    let required = !triggers.is_empty();
+    let required = workflow_paths::integration_required(
+        &mut triggers,
+        a.workflow()["semantic_changes_require_integration"] == true,
+        b.workflow()["semantic_changes_require_integration"] == true,
+        &rule_paths,
+    );
     if required {
         for (endpoint, r) in [("base", a), ("candidate", b)] {
             requirements.push(requirement(
@@ -131,7 +127,7 @@ fn requirement(
     registry: &str,
     pointer: &str,
     reason: &str,
-    paths: &BTreeSet<String>,
+    paths: &BTreeSet<&str>,
     tests: &Value,
 ) -> Value {
     let tests: BTreeSet<_> = tests

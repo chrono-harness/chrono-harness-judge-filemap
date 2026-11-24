@@ -10,6 +10,9 @@ use vstd::prelude::*;
 #[cfg(verus_keep_ghost)]
 use vstd::string::StringSliceAdditionalSpecFns;
 
+#[path = "workflow_paths.rs"]
+pub mod workflow_paths;
+
 #[path = "graph_key.rs"]
 mod graph_key;
 pub use graph_key::compare_bytes;
