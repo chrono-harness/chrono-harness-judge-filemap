@@ -1,0 +1,86 @@
+{
+  "schema_version": 2,
+  "status": "active",
+  "owners": [
+    "host",
+    "judge-filemap",
+    "judge-filemap-tests"
+  ],
+  "projects": [
+    {
+      "id": "judge-filemap",
+      "kind": "production",
+      "manifest": "crates/judge-filemap/Cargo.toml",
+      "lockfile": "crates/judge-filemap/Cargo.lock",
+      "root": "crates/judge-filemap",
+      "test_project": "judge-filemap-tests",
+      "actions": {
+        "verify_graph": {
+          "operation": "verify.filemap-graph",
+          "tool": "verus",
+          "argv": [
+            "--crate-type=lib",
+            "--no-cheating",
+            "--no-external-by-default",
+            "--num-threads",
+            "2",
+            "--output-json",
+            "--compile",
+            "--emit=link=.chrono-harness/state/verify.filemap-graph.rlib,dep-info=.chrono-harness/state/verify.filemap-graph.rlib.d",
+            "crates/judge-filemap/src/verified_graph.rs",
+            "-o",
+            ".chrono-harness/state/verify.filemap-graph.rlib",
+            "-Zchecksum-hash-algorithm=sha256"
+          ],
+          "output_contract": {
+            "version": "0.2026.04.24.f8e1704",
+            "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
+          }
+        }
+      },
+      "language": "rust"
+    },
+    {
+      "id": "judge-filemap-tests",
+      "kind": "test",
+      "manifest": "crates/judge-filemap-tests/Cargo.toml",
+      "lockfile": "crates/judge-filemap-tests/Cargo.lock",
+      "root": "crates/judge-filemap-tests",
+      "tests_for": "judge-filemap",
+      "actions": {
+        "verify_graph": {
+          "operation": "verify.filemap-graph-tests",
+          "tool": "verus",
+          "argv": [
+            "--crate-type=lib",
+            "--no-cheating",
+            "--no-external-by-default",
+            "--num-threads",
+            "2",
+            "--output-json",
+            "--compile",
+            "--emit=link=.chrono-harness/state/verify.filemap-graph-tests.rlib,dep-info=.chrono-harness/state/verify.filemap-graph-tests.rlib.d",
+            "crates/judge-filemap-tests/tests/verified_graph.rs",
+            "-o",
+            ".chrono-harness/state/verify.filemap-graph-tests.rlib",
+            "-Zchecksum-hash-algorithm=sha256"
+          ],
+          "output_contract": {
+            "version": "0.2026.04.24.f8e1704",
+            "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
+          }
+        },
+        "execute": {
+          "operation": "judge-filemap.owner-check",
+          "tool": "bash",
+          "argv": [
+            "./check.sh",
+            "--native"
+          ]
+        }
+      },
+      "language": "rust"
+    }
+  ],
+  "scripts": []
+}
