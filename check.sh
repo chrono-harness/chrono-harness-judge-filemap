@@ -18,27 +18,6 @@ mkdir "$scratch/test-bin"
 ln -s "$CHRONO_TEST_GIT" "$scratch/test-bin/git"
 test_runner=$(jq -cn --arg path "PATH=$scratch/test-bin:$PATH" '["/usr/bin/env", $path]')
 cargo test --locked --manifest-path crates/judge-filemap-tests/Cargo.toml --config "target.'cfg(all())'.runner=$test_runner"
-byte_array() {
-  od -An -v -tu1 | jq -cs .
-}
-
-proof_sources_match() {
-  local output=$1 source digest
-  shift
-  {
-    byte_array < "$output.d"
-    printf %s "$output.d" | byte_array
-    printf %s "$output" | byte_array
-    for source in "$@"; do
-      digest=$(shasum -a 256 < "$source") || return 1
-      jq -cn --argjson path "$(printf %s "$source" | byte_array)" \
-        --arg sha "${digest%% *}" --argjson length "$(wc -c < "$source")" \
-        '{path:$path, sha256:($sha|explode), length:$length}' || return 1
-    done
-  } | jq -cs '{operation:"dependency-matches", dependency:.[0], targets:.[1:3], sources:.[3:]}' |
-    chrono-harness compiler-output-v1 | jq -e '. == true' >/dev/null
-}
-
 coverage_failure() {
   echo "E_VERUS_COVERAGE: $*" >&2
   exit 1
@@ -58,7 +37,7 @@ prove() {
     ."encountered-error" == false and ."encountered-vir-error" == false and
     .errors == 0 and .verified > 0)' "$scratch/proof.json" >/dev/null || coverage_failure "$label: unexpected verifier report"
   test -s "$output" && test -s "$output.d" || coverage_failure "$label: missing compiler output"
-  proof_sources_match "$output" "$@" || coverage_failure "$label: compiled sources differ from required inputs"
+  chrono-host-bootstrap check-compiler-sources proof "$output" "$@" || coverage_failure "$label: compiled sources differ from required inputs"
 }
 
 # Read the exact library selected by Cargo in the build of the tested executable.
@@ -70,14 +49,8 @@ metadata=$(jq -ers --arg manifest "$(pwd -P)/$product" '
 filename=${metadata##*/}
 stem=${filename#lib}
 stem=${metadata%/*}/${stem%.rmeta}
-{
-  byte_array < "$stem.d"
-  printf %s "$stem" | byte_array
-} | jq -cs '{operation:"dependency-paths",dependency:.[0],stem:.[1]}' |
-  chrono-harness compiler-output-v1 |
-  jq -e 'type == "array" and any(.[]; . == ("src/verified_graph.rs"|explode))
-         and any(.[]; . == ("src/graph_key.rs"|explode)) and any(.[]; . == ("src/graph.rs"|explode))' >/dev/null ||
-  coverage_failure "graph proof sources or public graph interface missing from the native library"
+chrono-host-bootstrap check-compiler-sources native "$stem" src/verified_graph.rs src/graph_key.rs src/graph.rs ||
+  coverage_failure "native library differs from required sources"
 
 graph=crates/judge-filemap/src/verified_graph.rs
 keys=crates/judge-filemap/src/graph_key.rs
