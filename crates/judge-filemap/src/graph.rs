@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub use crate::verified_graph::{
-    CauseSet, Edge, EdgeKind, Origin, Predecessor, PredecessorTree, Seed, TraversedEdge, UnionEdge,
-    union,
+    CauseSet, Closure, Edge, EdgeKind, Origin, Predecessor, PredecessorId, PredecessorTree, Seed,
+    TraversedEdge, UnionEdge, union,
 };
 
 impl std::fmt::Debug for EdgeKind {
@@ -199,19 +199,12 @@ impl<'de> Deserialize<'de> for CauseSet {
         Ok(Self::from_names(&names))
     }
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Closure {
-    pub reached: BTreeMap<String, CauseSet>,
-    /// One deterministic shortest predecessor per (seed, node); null denotes the seed root.
-    pub predecessors: BTreeMap<String, PredecessorTree>,
-    /// All traversed edges and contributing seeds, including alternate paths and cycle edges.
-    pub traversed: Vec<TraversedEdge>,
-}
-impl crate::verified_graph::PredecessorSink for BTreeMap<String, PredecessorTree> {
-    fn record(&mut self, seed: &Seed, tree: PredecessorTree) {
-        self.insert(seed.id.clone(), tree);
+impl std::borrow::Borrow<str> for PredecessorId {
+    fn borrow(&self) -> &str {
+        &self.0
     }
 }
+
 /// Each ID identifies one root in the public predecessor dictionary.
 pub fn closure(edges: &[UnionEdge], seeds: &[Seed]) -> Result<Closure, String> {
     if let Some((first, second)) = crate::verified_graph::conflicting_seed_roots(seeds) {
@@ -226,22 +219,30 @@ pub fn closure(edges: &[UnionEdge], seeds: &[Seed]) -> Result<Closure, String> {
 /// The impact producer encodes the root node in every ID. Public callers first check this binding.
 pub(crate) fn closure_for_bound_roots(edges: &[UnionEdge], seeds: &[Seed]) -> Closure {
     let topology = crate::verified_graph::seed_topology(edges, seeds);
-    let mut predecessors = BTreeMap::new();
-    let causes = crate::verified_graph::collect_causes(&topology, seeds, &mut predecessors);
-    Closure {
-        reached: causes
-            .nodes
+    crate::verified_graph::publish_closure(&topology, seeds, &ReportRows)
+}
+
+struct ReportRows;
+
+impl crate::verified_graph::ClosureRows for ReportRows {
+    fn materialize(
+        &self,
+        names: &[&str],
+        nodes: BTreeMap<usize, CauseSet>,
+        edges: BTreeMap<Edge, CauseSet>,
+    ) -> (BTreeMap<String, CauseSet>, Vec<TraversedEdge>) {
+        let reached = nodes
             .into_iter()
-            .map(|(node, causes)| (topology.names[node].to_owned(), causes))
-            .collect(),
-        predecessors,
-        traversed: causes
-            .edges
+            .map(|(node, causes)| (names[node].to_owned(), causes))
+            .collect();
+        let traversed = edges
             .into_iter()
             .map(|(edge, seeds)| TraversedEdge { edge, seeds })
-            .collect(),
+            .collect();
+        (reached, traversed)
     }
 }
+
 impl Closure {
     pub fn selected_tests(&self) -> BTreeSet<String> {
         BTreeSet::from_iter(crate::verified_graph::selected_test_targets(
