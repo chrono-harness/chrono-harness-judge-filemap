@@ -27,6 +27,41 @@ fn expect(actual: bool)
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn classifier_prefix_and_registry_relocation_keep_exact_results() {
+    use policy::{classification_code, register_path_change};
+    proof {
+        reveal_strlit("E_"); vstd::string::is_ascii_spec_bytes("E_");
+        assert("E_".spec_bytes()[0] == 69 && "E_".spec_bytes()[1] == 95);
+        reveal_strlit("E_DETAIL"); reveal_strlit("xE_"); reveal_strlit("E");
+        reveal_strlit("one"); reveal_strlit("two");
+        assert("one"@[0] != "two"@[0]);
+        assert("one"@ != "two"@);
+        vstd::string::is_ascii_spec_bytes("E_DETAIL");
+        vstd::string::is_ascii_spec_bytes("xE_");
+        vstd::string::is_ascii_spec_bytes("E");
+        assert("E_DETAIL".spec_bytes().len() == 8);
+        assert("E_DETAIL".spec_bytes()[0] == 69 && "E_DETAIL".spec_bytes()[1] == 95);
+        assert("xE_".spec_bytes().len() == 3 && "xE_".spec_bytes()[0] == 120);
+        assert("E".spec_bytes().len() == 1);
+    }
+    let coded = classification_code("E_DETAIL");
+    let later = classification_code("xE_");
+    let short = classification_code("E");
+    assert(coded@ == "E_DETAIL"@);
+    assert(later@ == "E_WORKFLOW_INPUT"@);
+    assert(short@ == "E_WORKFLOW_INPUT"@);
+    let mut fields = Vec::new();
+    let same = register_path_change(&mut fields, Some("one"), Some("one")); expect(!same);
+    let missing = register_path_change(&mut fields, None, Some("two")); expect(!missing);
+    let removed = register_path_change(&mut fields, Some("one"), None); expect(!removed);
+    let moved = register_path_change(&mut fields, Some("one"), Some("two")); expect(moved);
+    let length = fields.len(); expect(length == 1);
+    assert(fields@[0]@ == "/$registry_path"@);
+    let existing = register_path_change(&mut fields, Some("two"), Some("two")); expect(existing);
+    let retained = fields.len(); expect(retained == 1);
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn ordered_registration_arrays_preserve_only_exact_sequence_fields() {
     use policy::ordered_array_field;
     proof {
