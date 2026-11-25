@@ -27,6 +27,19 @@ fn expect(actual: bool)
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn registration_child_path_observation_controls_fallback_and_removal() {
+    use policy::registration_environment::effective_child_path;
+    let inherited = effective_child_path(Some(11u8), None);
+    expect(inherited == Some(11u8));
+    let replaced = effective_child_path(Some(11u8), Some(Some(22u8)));
+    expect(replaced == Some(22u8));
+    let removed = effective_child_path(Some(11u8), Some(None));
+    expect(removed.is_none());
+    let unavailable = effective_child_path::<u8>(None, None);
+    expect(unavailable.is_none());
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn workflow_selection_keeps_the_exact_endpoint_and_delta_paths() {
     use policy::workflow_paths::*;
     let delta = schema_paths(2usize, 5usize, 1, 2);

@@ -1,8 +1,7 @@
 //! Read the interpreted declarations that the installed registration judge owns.
-#[path = "registration_environment.rs"]
-mod registration_environment;
 use crate::NodeDefinition;
 use crate::runtime::{Program, Reader};
+use crate::verified_graph::registration_environment;
 use serde::Deserialize;
 use serde_json::Value;
 use std::{

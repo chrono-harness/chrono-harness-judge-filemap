@@ -1489,6 +1489,8 @@ fn closure_query_keeps_removed_edges_cycles_and_only_reachable_causes_for_replay
     assert!(query(&request).is_err());
 }
 
+use verus_builtin_macros::verus;
+
 #[path = "../../judge-filemap/src/registration_environment.rs"]
 mod registration_environment;
 
