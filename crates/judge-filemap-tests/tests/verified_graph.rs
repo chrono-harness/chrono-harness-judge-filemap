@@ -27,6 +27,28 @@ fn expect(actual: bool)
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn ordered_registration_arrays_preserve_only_exact_sequence_fields() {
+    use policy::ordered_array_field;
+    proof {
+        reveal_strlit("argv"); reveal_strlit("version_argv"); reveal_strlit("operations");
+        reveal_strlit("priority"); reveal_strlit(""); reveal_strlit("Priority");
+        reveal_strlit("argv/"); reveal_strlit("resources");
+        assert("argv"@.len() == 4 && "version_argv"@.len() == 12 &&
+            "operations"@.len() == 10 && "priority"@.len() == 8);
+        assert(""@.len() == 0 && "argv/"@.len() == 5 && "resources"@.len() == 9);
+        assert("Priority"@.len() == 8 && "Priority"@[0] != "priority"@[0]);
+    }
+    expect(ordered_array_field("argv"));
+    expect(ordered_array_field("version_argv"));
+    expect(ordered_array_field("operations"));
+    expect(ordered_array_field("priority"));
+    expect(!ordered_array_field(""));
+    expect(!ordered_array_field("Priority"));
+    expect(!ordered_array_field("argv/"));
+    expect(!ordered_array_field("resources"));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn registration_child_path_observation_controls_fallback_and_removal() {
     use policy::registration_environment::effective_child_path;
     let inherited = effective_child_path(Some(11u8), None);

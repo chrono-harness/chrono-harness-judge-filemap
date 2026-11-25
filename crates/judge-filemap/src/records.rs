@@ -61,7 +61,7 @@ fn normalize(v: &Value, key: &str) -> Value {
     match v {
         Value::Array(a) => {
             let mut a: Vec<_> = a.iter().map(|v| normalize(v, "")).collect();
-            if !matches!(key, "argv" | "version_argv" | "operations" | "priority") {
+            if !crate::verified_graph::ordered_array_field(key) {
                 a.sort_by_cached_key(|v| serde_json::to_string(v).unwrap());
             }
             Value::Array(a)

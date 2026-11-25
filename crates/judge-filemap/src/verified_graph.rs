@@ -42,6 +42,16 @@ pub fn valid_types(kind: EdgeKind, from: NodeKind, to: NodeKind) -> bool {
 
 verus! {
 
+/// Registration sequences encode command arguments, operation order and scheduling priority.
+pub fn ordered_array_field(field: &str) -> (ordered: bool)
+    ensures ordered == (field@ == "argv"@ || field@ == "version_argv"@ ||
+        field@ == "operations"@ || field@ == "priority"@),
+{
+    use vstd::contrib::exec_spec::ExecSpecEq;
+    <&str>::exec_eq(field, "argv") || <&str>::exec_eq(field, "version_argv") ||
+        <&str>::exec_eq(field, "operations") || <&str>::exec_eq(field, "priority")
+}
+
 #[derive(Copy)]
 pub enum EdgeKind {
     Compile,
