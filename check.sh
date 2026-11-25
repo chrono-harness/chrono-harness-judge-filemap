@@ -43,7 +43,7 @@ metadata=$(jq -ers --arg manifest "$(pwd -P)/$product" '
 filename=${metadata##*/}
 stem=${filename#lib}
 stem=${metadata%/*}/${stem%.rmeta}
-chrono-host-bootstrap check-compiler-sources native "$stem" src/verified_graph.rs src/graph_key.rs src/graph.rs src/workflow_paths.rs src/workflow.rs src/registration_environment.rs ||
+chrono-host-bootstrap check-compiler-sources native "$stem" src/verified_graph.rs src/graph_key.rs src/graph.rs src/workflow_paths.rs src/workflow.rs src/registration_environment.rs src/records.rs ||
   coverage_failure "native library differs from required sources"
 
 # Check both registered compiler outputs against all required module inputs.
