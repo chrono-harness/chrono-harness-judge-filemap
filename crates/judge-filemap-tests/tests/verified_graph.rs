@@ -29,7 +29,6 @@ fn expect(actual: bool)
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn classifier_prefix_and_registry_relocation_keep_exact_results() {
     use policy::{classification_code, register_path_change};
-    use vstd::contrib::exec_spec::ExecSpecEq;
     proof {
         reveal_strlit("E_"); vstd::string::is_ascii_spec_bytes("E_");
         assert("E_".spec_bytes()[0] == 69 && "E_".spec_bytes()[1] == 95);
@@ -48,16 +47,16 @@ fn classifier_prefix_and_registry_relocation_keep_exact_results() {
     let coded = classification_code("E_DETAIL");
     let later = classification_code("xE_");
     let short = classification_code("E");
-    expect(<&str>::exec_eq(coded, "E_DETAIL"));
-    expect(<&str>::exec_eq(later, "E_WORKFLOW_INPUT"));
-    expect(<&str>::exec_eq(short, "E_WORKFLOW_INPUT"));
+    assert(coded@ == "E_DETAIL"@);
+    assert(later@ == "E_WORKFLOW_INPUT"@);
+    assert(short@ == "E_WORKFLOW_INPUT"@);
     let mut fields = Vec::new();
     let same = register_path_change(&mut fields, Some("one"), Some("one")); expect(!same);
     let missing = register_path_change(&mut fields, None, Some("two")); expect(!missing);
     let removed = register_path_change(&mut fields, Some("one"), None); expect(!removed);
     let moved = register_path_change(&mut fields, Some("one"), Some("two")); expect(moved);
     let length = fields.len(); expect(length == 1);
-    expect(<&str>::exec_eq(fields[0].as_str(), "/$registry_path"));
+    assert(fields@[0]@ == "/$registry_path"@);
     let existing = register_path_change(&mut fields, Some("two"), Some("two")); expect(existing);
     let retained = fields.len(); expect(retained == 1);
 }
