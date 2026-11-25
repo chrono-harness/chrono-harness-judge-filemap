@@ -31,3 +31,15 @@ FILEMAP 的端点查询、调度和收集从 PATH 调用固定发行的 `chrono-
 impact 从实际遍历原边一次生成 `required_tests`、`tests` 和 `retired_tests`。`test-execution` 目标按原节点名排序并去重，每个目标附上全部匹配原边。候选登记中确有测试节点的目标进入 `tests`，其余进入 `retired_tests`。
 
 变更文件、登记目标及有变化的边生成原因时，起点身份使用 JSON 的 `[reference, reason, node]`。Verus 核对实际传入编码器的字段顺序、所有 DELTA 文件及有变化边的两个端点。外部 JSON 字符串编码由 serde_json 提供，原生测试解码实际输出并核对含引号、反斜杠、换行及 Unicode 的身份。
+
+## 本仓本地检查的清理
+
+开发者运行 `mise exec -- ./check.sh` 时，工作树租约覆盖整个检查。准备输入和原报告写入 `.chrono-harness/state/preparation/`，单元结果在 `.chrono-harness/state/filemap/`，汇总在 `.chrono-harness/state/collection/`。登记的准备动作先创建 `.chrono-harness/state/filemap-proofs/`。两组证明编译库及依赖清单写入此目录，原生检查随后按文件核验编译器输入。定时维护在检查结束后回收此目录。原生构建使用专属的 `native-check/` 临时目录。需要保留的结果应在当日清理前复制到持久存储。
+
+完成工具安装后，可在主检出的用户 crontab 中登记每日 03:00 的滚动维护。将下方两个绝对路径替换为主检出和本机 `command -v mise` 的实际值。
+
+```cron
+0 3 * * * cd '/path/to/chrono-harness-judge-filemap' && '/path/to/mise' exec -- chrono-worktree maintain --host-root . --config .chrono-harness/worktree.json
+```
+
+同一日历批次共用截止时刻。调度器在运行且取得排他租约时回收已登记的空闲目录。首次登记前已有的目录需要核对、转存并显式接管。普通任务工作树在超过 24 小时且唯一源码已保全后可整树回收；仍在使用的原件继续保管。工作树日志和处置报告在一天的窗口及当前使用方结束后滚动。工具包位于 mise 共享安装目录，本仓的 bin/ 只保存链接。

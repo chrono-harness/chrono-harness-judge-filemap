@@ -77,6 +77,22 @@
       }
     },
     {
+      "path": ".chrono-harness/cleanup.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:judge-filemap-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
       "path": ".chrono-harness/config.json",
       "owner": "host",
       "surface": "product",
@@ -726,6 +742,7 @@
   "execution_plans": {
     "test:judge-filemap-tests": {
       "operations": [
+        "prepare.filemap-proof-directory",
         "verify.filemap-graph",
         "verify.filemap-graph-tests",
         "judge-filemap.owner-check"
