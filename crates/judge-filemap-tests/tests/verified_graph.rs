@@ -33,6 +33,10 @@ fn classifier_prefix_and_registry_relocation_keep_exact_results() {
     proof {
         reveal_strlit("E_DETAIL"); reveal_strlit("xE_"); reveal_strlit("E");
         reveal_strlit("one"); reveal_strlit("two");
+        assert("E_DETAIL".spec_bytes().len() == 8);
+        assert("E_DETAIL".spec_bytes()[0] == 69 && "E_DETAIL".spec_bytes()[1] == 95);
+        assert("xE_".spec_bytes().len() == 3 && "xE_".spec_bytes()[0] == 120);
+        assert("E".spec_bytes().len() == 1);
     }
     let coded = classification_code("E_DETAIL");
     let later = classification_code("xE_");

@@ -247,12 +247,29 @@ fn equal_record_in_moved_registry_seeds_each_endpoint_target() {
     let before = pair.base.as_ref().unwrap();
     let after = pair.candidate.as_ref().unwrap();
     assert_eq!(before.value, after.value);
-    assert_eq!((before.path.as_str(), after.path.as_str()), (PROJECTS, moved));
-    assert_eq!(impact.changes.iter().find(|c| c.record == id).unwrap().fields, ["/$registry_path"]);
-    let targets: BTreeSet<_> = impact.seed_causes.iter()
+    assert_eq!(
+        (before.path.as_str(), after.path.as_str()),
+        (PROJECTS, moved)
+    );
+    assert_eq!(
+        impact
+            .changes
+            .iter()
+            .find(|c| c.record == id)
+            .unwrap()
+            .fields,
+        ["/$registry_path"]
+    );
+    let targets: BTreeSet<_> = impact
+        .seed_causes
+        .iter()
         .filter(|s| s.reference == id && s.reason == "record-change")
-        .map(|s| s.node.clone()).collect();
-    assert_eq!(targets, before.targets.union(&after.targets).cloned().collect());
+        .map(|s| s.node.clone())
+        .collect();
+    assert_eq!(
+        targets,
+        before.targets.union(&after.targets).cloned().collect()
+    );
 }
 
 #[test]
@@ -267,7 +284,9 @@ fn classifier_findings_keep_the_first_code_and_declared_file_obligations() {
         let (impact, findings) = produce(&endpoints, &[delta("src.bin")], Err(message.into()));
         assert!(impact.workflow.is_null());
         assert_eq!(tests(&impact), ["test:t"]);
-        let [finding] = findings.as_slice() else { panic!("{findings:?}") };
+        let [finding] = findings.as_slice() else {
+            panic!("{findings:?}")
+        };
         assert_eq!(finding.code, code);
         assert_eq!(finding.level, "error");
         assert_eq!(finding.message, message);
