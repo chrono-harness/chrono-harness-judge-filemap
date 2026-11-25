@@ -31,6 +31,8 @@ fn classifier_prefix_and_registry_relocation_keep_exact_results() {
     use policy::{classification_code, register_path_change};
     use vstd::contrib::exec_spec::ExecSpecEq;
     proof {
+        reveal_strlit("E_"); vstd::string::is_ascii_spec_bytes("E_");
+        assert("E_".spec_bytes()[0] == 69 && "E_".spec_bytes()[1] == 95);
         reveal_strlit("E_DETAIL"); reveal_strlit("xE_"); reveal_strlit("E");
         reveal_strlit("one"); reveal_strlit("two");
         vstd::string::is_ascii_spec_bytes("E_DETAIL");
