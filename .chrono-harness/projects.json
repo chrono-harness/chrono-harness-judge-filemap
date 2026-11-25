@@ -26,10 +26,10 @@
             "2",
             "--output-json",
             "--compile",
-            "--emit=link=.chrono-harness/state/verify.filemap-graph.rlib,dep-info=.chrono-harness/state/verify.filemap-graph.rlib.d",
+            "--emit=link=.chrono-harness/state/preparation/verify.filemap-graph.rlib,dep-info=.chrono-harness/state/preparation/verify.filemap-graph.rlib.d",
             "crates/judge-filemap/src/verified_graph.rs",
             "-o",
-            ".chrono-harness/state/verify.filemap-graph.rlib",
+            ".chrono-harness/state/preparation/verify.filemap-graph.rlib",
             "-Zchecksum-hash-algorithm=sha256"
           ],
           "output_contract": {
@@ -59,10 +59,10 @@
             "2",
             "--output-json",
             "--compile",
-            "--emit=link=.chrono-harness/state/verify.filemap-graph-tests.rlib,dep-info=.chrono-harness/state/verify.filemap-graph-tests.rlib.d",
+            "--emit=link=.chrono-harness/state/preparation/verify.filemap-graph-tests.rlib,dep-info=.chrono-harness/state/preparation/verify.filemap-graph-tests.rlib.d",
             "crates/judge-filemap-tests/tests/verified_graph.rs",
             "-o",
-            ".chrono-harness/state/verify.filemap-graph-tests.rlib",
+            ".chrono-harness/state/preparation/verify.filemap-graph-tests.rlib",
             "-Zchecksum-hash-algorithm=sha256"
           ],
           "output_contract": {

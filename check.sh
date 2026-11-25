@@ -11,8 +11,9 @@ if [[ $# -ne 1 || $1 != --native ]]; then
   echo 'usage: ./check.sh [--native]' >&2
   exit 2
 fi
-mkdir -p target
-scratch=$(mktemp -d "$(pwd -P)/target/check.XXXXXXXX")
+scratch_root=$(pwd -P)/.chrono-harness/state/native-check
+mkdir -p "$scratch_root"
+scratch=$(mktemp -d "$scratch_root/check.XXXXXXXX")
 trap 'rm -rf -- "$scratch"' EXIT
 export TMPDIR="$scratch"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$scratch/cargo}"
@@ -51,7 +52,7 @@ keys=crates/judge-filemap/src/graph_key.rs
 workflow=crates/judge-filemap/src/workflow_paths.rs
 expectations=crates/judge-filemap-tests/tests/verified_graph.rs
 include=crates/judge-filemap-tests/tests/../../judge-filemap/src
-chrono-host-bootstrap check-compiler-sources proof .chrono-harness/state/verify.filemap-graph.rlib \
+chrono-host-bootstrap check-compiler-sources proof .chrono-harness/state/preparation/verify.filemap-graph.rlib \
   "$graph" "$workflow" "$keys" || coverage_failure "production graph proof has different compiler inputs"
-chrono-host-bootstrap check-compiler-sources proof .chrono-harness/state/verify.filemap-graph-tests.rlib \
+chrono-host-bootstrap check-compiler-sources proof .chrono-harness/state/preparation/verify.filemap-graph-tests.rlib \
   "$expectations" "$include/verified_graph.rs" "$include/workflow_paths.rs" "$include/graph_key.rs" || coverage_failure "expectation proof has different compiler inputs"
