@@ -54,6 +54,6 @@ environment=crates/judge-filemap/src/registration_environment.rs
 expectations=crates/judge-filemap-tests/tests/verified_graph.rs
 include=crates/judge-filemap-tests/tests/../../judge-filemap/src
 chrono-host-bootstrap check-compiler-sources proof .chrono-harness/state/filemap-proofs/verify.filemap-graph.rlib \
-  "$graph" "$workflow" "$keys" "$environment" || coverage_failure "production graph proof has different compiler inputs"
+  "$graph" "$environment" "$workflow" "$keys" || coverage_failure "production graph proof has different compiler inputs"
 chrono-host-bootstrap check-compiler-sources proof .chrono-harness/state/filemap-proofs/verify.filemap-graph-tests.rlib \
-  "$expectations" "$include/verified_graph.rs" "$include/workflow_paths.rs" "$include/graph_key.rs" "$include/registration_environment.rs" || coverage_failure "expectation proof has different compiler inputs"
+  "$expectations" "$include/verified_graph.rs" "$include/registration_environment.rs" "$include/workflow_paths.rs" "$include/graph_key.rs" || coverage_failure "expectation proof has different compiler inputs"
