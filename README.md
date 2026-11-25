@@ -34,7 +34,7 @@ impact 从实际遍历原边一次生成 `required_tests`、`tests` 和 `retired
 
 ## 本仓本地检查的清理
 
-开发者运行 `mise exec -- ./check.sh` 时，工作树租约覆盖整个检查。准备输入和原报告写入 `.chrono-harness/state/preparation/`，单元结果在 `.chrono-harness/state/filemap/`，汇总在 `.chrono-harness/state/collection/`。两组证明编译库及依赖清单写入准备目录，原生检查随后重读并核验两组编译器输入，文件随准备目录按日回收。原生构建使用专属的 `native-check/` 临时目录。需要保留的结果应在当日清理前复制到持久存储。
+开发者运行 `mise exec -- ./check.sh` 时，工作树租约覆盖整个检查。准备输入和原报告写入 `.chrono-harness/state/preparation/`，单元结果在 `.chrono-harness/state/filemap/`，汇总在 `.chrono-harness/state/collection/`。登记的准备动作先创建 `.chrono-harness/state/filemap-proofs/`。两组证明编译库及依赖清单写入此目录，原生检查随后按文件核验编译器输入。定时维护在检查结束后回收此目录。原生构建使用专属的 `native-check/` 临时目录。需要保留的结果应在当日清理前复制到持久存储。
 
 完成工具安装后，可在主检出的用户 crontab 中登记每日 03:00 的滚动维护。将下方两个绝对路径替换为主检出和本机 `command -v mise` 的实际值。
 

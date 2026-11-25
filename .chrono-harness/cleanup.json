@@ -43,6 +43,10 @@
     {
       "path": ".chrono-harness/state/local/",
       "disposition": "finish-dispose"
+    },
+    {
+      "path": ".chrono-harness/state/filemap-proofs/",
+      "disposition": "dispose"
     }
   ],
   "terminal_history": {

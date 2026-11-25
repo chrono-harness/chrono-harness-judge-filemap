@@ -246,6 +246,12 @@
       "owner": "host",
       "kind": "build",
       "tracked": false
+    },
+    {
+      "path": ".chrono-harness/state/filemap-proofs/",
+      "owner": "host",
+      "kind": "proof-compiler-output",
+      "tracked": false
     }
   ]
 }

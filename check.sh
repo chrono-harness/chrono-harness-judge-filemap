@@ -52,7 +52,7 @@ keys=crates/judge-filemap/src/graph_key.rs
 workflow=crates/judge-filemap/src/workflow_paths.rs
 expectations=crates/judge-filemap-tests/tests/verified_graph.rs
 include=crates/judge-filemap-tests/tests/../../judge-filemap/src
-chrono-host-bootstrap check-compiler-sources proof .chrono-harness/state/preparation/verify.filemap-graph.rlib \
+chrono-host-bootstrap check-compiler-sources proof .chrono-harness/state/filemap-proofs/verify.filemap-graph.rlib \
   "$graph" "$workflow" "$keys" || coverage_failure "production graph proof has different compiler inputs"
-chrono-host-bootstrap check-compiler-sources proof .chrono-harness/state/preparation/verify.filemap-graph-tests.rlib \
+chrono-host-bootstrap check-compiler-sources proof .chrono-harness/state/filemap-proofs/verify.filemap-graph-tests.rlib \
   "$expectations" "$include/verified_graph.rs" "$include/workflow_paths.rs" "$include/graph_key.rs" || coverage_failure "expectation proof has different compiler inputs"

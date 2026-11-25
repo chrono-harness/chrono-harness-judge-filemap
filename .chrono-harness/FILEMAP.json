@@ -742,6 +742,7 @@
   "execution_plans": {
     "test:judge-filemap-tests": {
       "operations": [
+        "prepare.filemap-proof-directory",
         "verify.filemap-graph",
         "verify.filemap-graph-tests",
         "judge-filemap.owner-check"
