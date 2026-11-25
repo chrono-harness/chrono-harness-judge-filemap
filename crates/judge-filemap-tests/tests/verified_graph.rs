@@ -35,6 +35,8 @@ fn classifier_prefix_and_registry_relocation_keep_exact_results() {
         assert("E_".spec_bytes()[0] == 69 && "E_".spec_bytes()[1] == 95);
         reveal_strlit("E_DETAIL"); reveal_strlit("xE_"); reveal_strlit("E");
         reveal_strlit("one"); reveal_strlit("two");
+        assert("one"@[0] != "two"@[0]);
+        assert("one"@ != "two"@);
         vstd::string::is_ascii_spec_bytes("E_DETAIL");
         vstd::string::is_ascii_spec_bytes("xE_");
         vstd::string::is_ascii_spec_bytes("E");
