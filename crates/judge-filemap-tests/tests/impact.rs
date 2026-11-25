@@ -236,6 +236,47 @@ fn file_record_field_and_edge_add_delete_retarget_changes_seed_both_ends() {
     }
 }
 #[test]
+fn equal_record_in_moved_registry_seeds_each_endpoint_target() {
+    let mut endpoints = views("standard", "standard");
+    let moved = ".chrono-harness/other-projects.json";
+    endpoints.candidate.config["registries"]["projects"] = json!(moved);
+    let (impact, findings) = produce(&endpoints, &[], classification(&[]));
+    assert!(findings.is_empty(), "{findings:?}");
+    let id = "/records/projects/projects/t";
+    let pair = &impact.records[id];
+    let before = pair.base.as_ref().unwrap();
+    let after = pair.candidate.as_ref().unwrap();
+    assert_eq!(before.value, after.value);
+    assert_eq!((before.path.as_str(), after.path.as_str()), (PROJECTS, moved));
+    assert_eq!(impact.changes.iter().find(|c| c.record == id).unwrap().fields, ["/$registry_path"]);
+    let targets: BTreeSet<_> = impact.seed_causes.iter()
+        .filter(|s| s.reference == id && s.reason == "record-change")
+        .map(|s| s.node.clone()).collect();
+    assert_eq!(targets, before.targets.union(&after.targets).cloned().collect());
+}
+
+#[test]
+fn classifier_findings_keep_the_first_code_and_declared_file_obligations() {
+    let endpoints = views("standard", "standard");
+    for (message, code) in [
+        ("E_SURFACE_REFERENCE: file:missing", "E_SURFACE_REFERENCE"),
+        ("missing: E_SECOND", "E_WORKFLOW_INPUT"),
+        ("E_NO_DETAIL", "E_NO_DETAIL"),
+        ("", "E_WORKFLOW_INPUT"),
+    ] {
+        let (impact, findings) = produce(&endpoints, &[delta("src.bin")], Err(message.into()));
+        assert!(impact.workflow.is_null());
+        assert_eq!(tests(&impact), ["test:t"]);
+        let [finding] = findings.as_slice() else { panic!("{findings:?}") };
+        assert_eq!(finding.code, code);
+        assert_eq!(finding.level, "error");
+        assert_eq!(finding.message, message);
+        assert_eq!(finding.delta_refs, ["/request"]);
+        assert!(finding.causes.is_empty());
+    }
+}
+
+#[test]
 fn emitted_seed_ids_decode_to_the_exact_reference_reason_and_node() {
     let source = "dir/引号\"与反斜杠\\以及换行\n[]";
     let (impact, findings) = produce(

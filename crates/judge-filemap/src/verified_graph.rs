@@ -52,6 +52,38 @@ pub fn ordered_array_field(field: &str) -> (ordered: bool)
         <&str>::exec_eq(field, "operations") || <&str>::exec_eq(field, "priority")
 }
 
+/// Classifier status codes occupy the first colon-delimited field of the diagnostic.
+pub fn classification_code(field: &str) -> (code: &str)
+    ensures code@ == if field.spec_bytes().len() >= 2
+        && field.spec_bytes()[0] == b'E' && field.spec_bytes()[1] == b'_' {
+        field@
+    } else { "E_WORKFLOW_INPUT"@ },
+{
+    let bytes = field.as_bytes();
+    if bytes.len() >= 2 && bytes[0] == b'E' && bytes[1] == b'_' { field }
+    else { "E_WORKFLOW_INPUT" }
+}
+
+/// A shared record changes source only when both backing registry paths exist and differ.
+pub fn register_path_change(fields: &mut Vec<String>, base: Option<&str>, candidate: Option<&str>)
+    -> (changed: bool)
+    ensures
+        fields@.map_values(|f: String| f@) == match (base, candidate) {
+            (Some(a), Some(b)) if a@ != b@ =>
+                old(fields)@.map_values(|f: String| f@).push("/$registry_path"@),
+            _ => old(fields)@.map_values(|f: String| f@),
+        },
+        changed == (fields.len() != 0),
+{
+    use vstd::contrib::exec_spec::ExecSpecEq;
+    if let (Some(a), Some(b)) = (base, candidate) {
+        if !<&str>::exec_eq(a, b) {
+            fields.push("/$registry_path".to_owned());
+        }
+    }
+    !fields.is_empty()
+}
+
 #[derive(Copy)]
 pub enum EdgeKind {
     Compile,

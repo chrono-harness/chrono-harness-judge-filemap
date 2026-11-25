@@ -141,12 +141,10 @@ pub fn produce(
         Ok(selection) => selection,
         Err(message) => {
             findings.push(Finding {
-                code: message
-                    .split(':')
-                    .next()
-                    .filter(|s| s.starts_with("E_"))
-                    .unwrap_or("E_WORKFLOW_INPUT")
-                    .into(),
+                code: verified_graph::classification_code(
+                    message.split(':').next().unwrap_or_default(),
+                )
+                .into(),
                 level: "error".into(),
                 message,
                 delta_refs: vec!["/request".into()],
@@ -164,11 +162,11 @@ pub fn produce(
         let bv = b.get(id).map(|r| &r.record);
         let mut fields = vec![];
         records::changed_fields(av.map(|r| &r.value), bv.map(|r| &r.value), "", &mut fields);
-        // Registry relocation is an input change even when the record's value is identical.
-        if av.zip(bv).is_some_and(|(a, b)| a.path != b.path) {
-            fields.push("/$registry_path".into());
-        }
-        if !fields.is_empty() {
+        if verified_graph::register_path_change(
+            &mut fields,
+            av.map(|r| r.path.as_str()),
+            bv.map(|r| r.path.as_str()),
+        ) {
             for record in av.into_iter().chain(bv) {
                 for target in &record.targets {
                     verified_graph::insert_seed(
