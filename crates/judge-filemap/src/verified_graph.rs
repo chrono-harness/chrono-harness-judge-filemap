@@ -55,12 +55,12 @@ pub fn ordered_array_field(field: &str) -> (ordered: bool)
 /// Classifier status codes occupy the first colon-delimited field of the diagnostic.
 pub fn classification_code(field: &str) -> (code: &str)
     ensures code@ == if field.spec_bytes().len() >= 2
-        && field.spec_bytes()[0] == b'E' && field.spec_bytes()[1] == b'_' {
+        && field.spec_bytes()[0] == 69u8 && field.spec_bytes()[1] == 95u8 {
         field@
     } else { "E_WORKFLOW_INPUT"@ },
 {
     let bytes = field.as_bytes();
-    if bytes.len() >= 2 && bytes[0] == b'E' && bytes[1] == b'_' { field }
+    if bytes.len() >= 2 && bytes[0] == 69u8 && bytes[1] == 95u8 { field }
     else { "E_WORKFLOW_INPUT" }
 }
 
