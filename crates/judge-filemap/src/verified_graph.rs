@@ -71,14 +71,11 @@ pub fn classification_code(field: &str) -> (code: &str)
 pub fn register_path_change(fields: &mut Vec<String>, base: Option<&str>, candidate: Option<&str>)
     -> (changed: bool)
     ensures
-        fields@.map_values(|f: String| f@) == match (base, candidate) {
+        match (base, candidate) {
             (Some(a), Some(b)) if a@ != b@ =>
-                old(fields)@.map_values(|f: String| f@).push("/$registry_path"@),
-            _ => old(fields)@.map_values(|f: String| f@),
-        },
-        fields.len() == old(fields).len() + match (base, candidate) {
-            (Some(a), Some(b)) if a@ != b@ => 1int,
-            _ => 0int,
+                fields.len() == old(fields).len() + 1 &&
+                fields@.drop_last() == old(fields)@ && fields@.last()@ == "/$registry_path"@,
+            _ => fields@ == old(fields)@,
         },
         changed == (fields.len() != 0),
 {
