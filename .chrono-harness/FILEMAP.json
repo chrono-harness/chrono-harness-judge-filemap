@@ -406,7 +406,11 @@
           "kind": "test-execution",
           "to": "test:judge-filemap-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": "crates/judge-filemap-tests/Cargo.toml",
@@ -563,7 +567,11 @@
           "kind": "test-execution",
           "to": "test:judge-filemap-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": "crates/judge-filemap/Cargo.toml",
@@ -575,7 +583,11 @@
           "kind": "test-execution",
           "to": "test:judge-filemap-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": "crates/judge-filemap/src/classification.rs",
