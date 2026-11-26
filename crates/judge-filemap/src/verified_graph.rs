@@ -10,6 +10,14 @@ use vstd::prelude::*;
 #[cfg(verus_keep_ghost)]
 use vstd::string::StringSliceAdditionalSpecFns;
 
+#[cfg(verus_keep_ghost)]
+#[path = "runtime.rs"]
+mod runtime;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::runtime::complete_frame;
+#[cfg(verus_keep_ghost)]
+pub use runtime::complete_frame;
+
 #[path = "registration_trace.rs"]
 pub mod registration_trace;
 

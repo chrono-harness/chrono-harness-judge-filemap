@@ -43,12 +43,12 @@ metadata=$(jq -ers --arg manifest "$(pwd -P)/$product" '
 filename=${metadata##*/}
 stem=${filename#lib}
 stem=${metadata%/*}/${stem%.rmeta}
-chrono-host-bootstrap check-compiler-sources native "$stem" src/verified_graph.rs src/graph_key.rs src/graph.rs src/workflow_paths.rs src/finding_origin.rs src/workflow.rs src/registration_environment.rs src/records.rs ||
+chrono-host-bootstrap check-compiler-sources native "$stem" src/verified_graph.rs src/graph_key.rs src/graph.rs src/workflow_paths.rs src/finding_origin.rs src/workflow.rs src/registration_environment.rs src/records.rs src/runtime.rs ||
   coverage_failure "native library differs from required sources"
 
 # Both roots compile the same graph modules. The independent root also reads
 # this deployed list when it checks the registered public graph source.
-proof_modules=(registration_trace.rs registration_environment.rs finding_origin.rs workflow_paths.rs graph_key.rs classification.rs graph.rs)
+proof_modules=(registration_trace.rs registration_environment.rs finding_origin.rs workflow_paths.rs graph_key.rs classification.rs graph.rs runtime.rs)
 production=crates/judge-filemap/src
 independent=crates/judge-filemap-tests/tests
 included=$independent/../../judge-filemap/src

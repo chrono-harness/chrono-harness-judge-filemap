@@ -1,8 +1,25 @@
 //! Clients for the installed runner's fixed Git reader and bounded command transport.
+#![allow(unexpected_cfgs)]
+use vstd::prelude::*;
+
+verus! {
+/// A complete response contains exactly the declared stdout and stderr bytes.
+pub fn complete_frame(stdout: usize, stderr: usize, bytes: usize) -> (complete: bool)
+    ensures complete == (stdout as int + stderr == bytes),
+{
+    stdout <= bytes && stderr == bytes - stdout
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use crate::Delta;
+#[cfg(not(verus_keep_ghost))]
 use serde::Deserialize;
+#[cfg(not(verus_keep_ghost))]
 use serde::de::DeserializeOwned;
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::{
     collections::BTreeMap,
     fs,
@@ -11,6 +28,7 @@ use std::{
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
 };
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 pub(crate) struct Snapshot {
     pub values: BTreeMap<String, Value>,
@@ -18,12 +36,14 @@ pub(crate) struct Snapshot {
     pub effective_path: String,
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) struct Reader {
     child: Child,
     input: Option<ChildStdin>,
     output: BufReader<ChildStdout>,
     pub bound: bool,
 }
+#[cfg(not(verus_keep_ghost))]
 impl Reader {
     pub fn open(root: &Path, header: Value) -> Result<Self, String> {
         let mut child = Command::new("chrono-harness")
@@ -90,6 +110,7 @@ impl Reader {
         }
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl Drop for Reader {
     fn drop(&mut self) {
         drop(self.input.take());
@@ -97,10 +118,12 @@ impl Drop for Reader {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) struct Program {
     path: PathBuf,
     digest: String,
 }
+#[cfg(not(verus_keep_ghost))]
 impl Program {
     pub fn resolve(root: &Path, name: &str, search: Option<&str>) -> Result<Self, String> {
         use sha2::{Digest, Sha256};
@@ -173,7 +196,7 @@ impl Program {
             .read_until(b'\n', &mut line)
             .map_err(|e| e.to_string())?;
         let lengths: Lengths = serde_json::from_slice(&line).map_err(|e| e.to_string())?;
-        if lengths.stdout_length.checked_add(lengths.stderr_length) != Some(bytes.len()) {
+        if !complete_frame(lengths.stdout_length, lengths.stderr_length, bytes.len()) {
             return Err("E_PROTOCOL: command stream lengths differ".into());
         }
         let (stdout, stderr) = bytes.split_at(lengths.stdout_length);
