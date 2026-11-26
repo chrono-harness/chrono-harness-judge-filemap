@@ -144,14 +144,14 @@ pub(crate) fn read(
     })
 }
 
-type Reader =
+type Facts =
     crate::verified_graph::registration_trace::Reader<Value, serde_json::Map<String, Value>>;
 
-fn reader(value: Value) -> Reader {
+fn reader(value: Value) -> Facts {
     match value {
-        Value::Null => Reader::Null,
-        Value::Object(object) => Reader::Object(object),
-        other => Reader::Other(other),
+        Value::Null => Facts::Null,
+        Value::Object(object) => Facts::Object(object),
+        other => Facts::Other(other),
     }
 }
 
@@ -187,9 +187,9 @@ pub(crate) fn with_registration_facts(
 ) -> Result<Value, String> {
     use crate::verified_graph::registration_trace::{Selection, bind_traces, select_readers};
     match select_readers(reader(local), other.map(reader)).map_err(|e| e.diagnostic())? {
-        Selection::Original(Reader::Null) => Ok(Value::Null),
-        Selection::Original(Reader::Other(value)) => Ok(value),
-        Selection::Original(Reader::Object(map)) => Ok(Value::Object(map)),
+        Selection::Original(Facts::Null) => Ok(Value::Null),
+        Selection::Original(Facts::Other(value)) => Ok(value),
+        Selection::Original(Facts::Object(map)) => Ok(Value::Object(map)),
         Selection::Bind(mut left, mut right) => {
             let local = left.remove("processes").map(processes);
             let registration = right.remove("processes").map(processes);
