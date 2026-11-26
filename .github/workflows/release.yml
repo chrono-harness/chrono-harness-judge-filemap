@@ -53,11 +53,11 @@ jobs:
           "$CARGO_TARGET_DIR/release/chrono-judge-filemap" --version
           binary="$CARGO_TARGET_DIR/release/chrono-judge-filemap"
           request='{"schema":"chrono-filemap-impact/v6","workflow":null,"delta":[],"records":{},"changes":[],"nodes":{},"edges":[],"seed_causes":[],"closure":{"reached":{},"predecessors":{},"traversed":[]},"tests":[],"retired_tests":[],"required_tests":[],"judges":[],"historical_context":[],"historical_ambiguities":[],"limits":[]}'
-          "$binary" impact-summary <<< "$request" | jq -e '.reached == [] and .schema == "chrono-filemap-impact/v6"'
+          "$binary" impact-summary <<< "$request" > "$RUNNER_TEMP/impact-result"
           code=0
           "$binary" impact-summary <<< '{}' 2>"$RUNNER_TEMP/impact-error" || code=$?
-          test "$code" = 2
-          test -s "$RUNNER_TEMP/impact-error"
+          cargo run --quiet --locked --release --manifest-path crates/judge-filemap-tests/Cargo.toml \
+            --example release_observation -- "$code" "$RUNNER_TEMP/impact-error" "$RUNNER_TEMP/impact-result"
           mkdir "$RUNNER_TEMP/dist"
           cp "$CARGO_TARGET_DIR/release/chrono-judge-filemap" "$RUNNER_TEMP/dist/chrono-judge-filemap-$PLATFORM"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
