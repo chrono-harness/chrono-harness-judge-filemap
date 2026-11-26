@@ -11,7 +11,7 @@ serde_json = "1"
 
 [dev-dependencies]
 json-patch = { version = "4", default-features = false }
-verus_builtin_macros = "=0.0.0-2026-04-20-1748"
+verus_builtin_macros = "=0.0.0-2026-11-22-0344"
 chrono-judge-filemap = { path = "../judge-filemap" }
 tempfile = "3"
 
