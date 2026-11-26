@@ -10,6 +10,9 @@ use vstd::prelude::*;
 #[cfg(verus_keep_ghost)]
 use vstd::string::StringSliceAdditionalSpecFns;
 
+#[path = "registration_trace.rs"]
+pub mod registration_trace;
+
 #[path = "registration_environment.rs"]
 pub mod registration_environment;
 

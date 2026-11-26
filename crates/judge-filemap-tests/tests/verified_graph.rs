@@ -16,6 +16,39 @@ use vstd::vpanic as panic;
 
 verus! {
 
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn registration_trace_keeps_local_prefix_remote_rows_and_local_suffix() {
+    use policy::registration_trace::{merge_trace, MergeError};
+    let joined = merge_trace(vec![1u8, 2u8, 3u8], 1, vec![7u8, 8u8]);
+    match joined {
+        Ok(v) => { expect(v.len() == 5); expect(v[0] == 1 && v[1] == 7 && v[2] == 8 && v[3] == 2 && v[4] == 3); }
+        Err(_) => expect(false),
+    }
+    expect(matches!(merge_trace(vec![3u8], 2, Vec::new()), Err(MergeError::MissingPrefix)));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn original_reader_and_first_registration_error_are_preserved() {
+    use policy::registration_trace::{MergeError::*, Reader, Selection, bind_traces, select_readers};
+    expect(matches!(select_readers::<u8,u8>(Reader::Other(5), None),
+        Ok(Selection::Original(Reader::Other(5)))));
+    expect(matches!(select_readers::<u8,u8>(Reader::Null, Some(Reader::Null)), Ok(Selection::Original(Reader::Null))));
+    expect(matches!(select_readers::<u8,u8>(Reader::Null, Some(Reader::Other(4))), Err(UnboundLocal)));
+    expect(matches!(select_readers::<u8,u8>(Reader::Object(2), Some(Reader::Null)), Err(UnboundRegistration)));
+    expect(matches!(select_readers::<u8,u8>(Reader::Object(2), Some(Reader::Object(7))), Ok(Selection::Bind(2,7))));
+    expect(matches!(bind_traces::<u8>(false, None, 3, None), Err(MissingLocal)));
+    expect(matches!(bind_traces::<u8>(false, Some(None), 3, None), Err(MissingRegistration)));
+    expect(matches!(bind_traces::<u8>(false, Some(None), 3, Some(None)), Err(DifferentBinding)));
+    expect(matches!(bind_traces::<u8>(true, Some(None), 3, Some(None)), Err(InvalidLocal)));
+    expect(matches!(bind_traces::<u8>(true, Some(Some(Vec::new())), 3, Some(None)), Err(InvalidRegistration)));
+    expect(matches!(bind_traces::<u8>(true, Some(Some(Vec::new())), 3, Some(Some(Vec::new()))), Err(MissingPrefix)));
+    let joined = bind_traces(true, Some(Some(vec![1u8,2u8])), 1, Some(Some(vec![7u8,8u8])));
+    match joined {
+        Ok(rows) => expect(rows.len() == 4 && rows[0] == 1 && rows[1] == 7 && rows[2] == 8 && rows[3] == 2),
+        Err(_) => expect(false),
+    }
+}
+
 broadcast use vstd::string::group_string_axioms;
 
 use policy::EndpointRole::*;
