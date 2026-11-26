@@ -4235,15 +4235,83 @@ pub struct Closure {
     pub traversed: Vec<TraversedEdge>,
 }
 
-/// The JSON adapter formats graph rows and has no access to the published witness table.
+/// Preserve the exact ordered edge/cause pairs exposed to the test selector.
+pub open spec fn public_pairs(rows: Seq<TraversedEdge>) -> Seq<(Edge, Seq<Seq<u8>>)> {
+    rows.map(|_idx: int, r: TraversedEdge| (r.edge, r.seeds.keys()))
+}
+
+pub fn traversed_rows(edges: &BTreeMap<Edge, CauseSet>) -> (out: Vec<TraversedEdge>)
+    ensures
+        public_pairs(out@).to_set() == edges@.kv_pairs().map(
+            |pair: (Edge, CauseSet)| (pair.0, pair.1.keys())),
+        vstd::std_specs::btree::increasing_seq(out@.map(|_i: int, row: TraversedEdge| row.edge)),
+{
+    proof { edge_obeys_cmp(); }
+    let it = edges.iter();
+    let ghost entries = it@.1;
+    let mut rows: Vec<TraversedEdge> = Vec::with_capacity(edges.len());
+    for pair in cursor: it
+        invariant
+            cursor.kv_pairs == entries,
+            rows.len() == cursor.pos,
+            forall|i: int| 0 <= i < rows.len() ==>
+                (#[trigger] rows@[i]).edge == entries[i].0 && rows@[i].seeds.keys() == entries[i].1.keys(),
+    {
+        let (edge, causes) = pair;
+        let ghost old_rows = rows@;
+        rows.push(TraversedEdge { edge: edge.clone(), seeds: causes.clone() });
+        proof {
+            assert forall|i: int| 0 <= i < rows.len() implies
+                (#[trigger] rows@[i]).edge == entries[i].0 && rows@[i].seeds.keys() == entries[i].1.keys() by {
+                if i < old_rows.len() { assert(rows@[i] == old_rows[i]); }
+            }
+        }
+    }
+    proof {
+        assert(rows@.map(|_i: int, row: TraversedEdge| row.edge)
+            =~= entries.map(|_i: int, pair: (Edge, CauseSet)| pair.0));
+        assert(public_pairs(rows@) =~= entries.map(
+            |_idx: int, pair: (Edge, CauseSet)| (pair.0, pair.1.keys())));
+        assert(public_pairs(rows@).to_set() =~= edges@.kv_pairs().map(
+            |pair: (Edge, CauseSet)| (pair.0, pair.1.keys()))) by {
+            assert forall|pair: (Edge, Seq<Seq<u8>>)| public_pairs(rows@).to_set().contains(pair)
+                <==> edges@.kv_pairs().map(|kv: (Edge, CauseSet)| (kv.0, kv.1.keys())).contains(pair) by {
+                if public_pairs(rows@).to_set().contains(pair) {
+                    let i = choose|i: int| 0 <= i < entries.len() && public_pairs(rows@)[i] == pair;
+                    assert(entries.to_set().contains(entries[i]));
+                } else if edges@.kv_pairs().map(|kv: (Edge, CauseSet)| (kv.0, kv.1.keys())).contains(pair) {
+                    let kv = choose|kv: (Edge, CauseSet)| edges@.kv_pairs().contains(kv)
+                        && (kv.0, kv.1.keys()) == pair;
+                    let i = choose|i: int| 0 <= i < entries.len() && entries[i] == kv;
+                    assert(public_pairs(rows@)[i] == pair);
+                }
+            }
+        }
+    }
+    rows
+}
+
+/// Only the reached-name map is supplied by the native adapter.
 pub trait ClosureRows {
-    fn materialize(&self, names: &[&str], nodes: BTreeMap<usize, CauseSet>, edges: BTreeMap<Edge, CauseSet>)
-        -> (BTreeMap<String, CauseSet>, Vec<TraversedEdge>);
+    fn materialize(&self, names: &[&str], nodes: BTreeMap<usize, CauseSet>)
+        -> BTreeMap<String, CauseSet>;
+}
+
+pub open spec fn visited_edge(t: &Topology, count: int, edge: Edge) -> bool {
+    all_members(count, |i: int| seed_edges(t,i)).contains(edge)
 }
 
 pub fn publish_closure(t: &Topology, seeds: &[Seed], rows: &impl ClosureRows) -> (out: Closure)
     requires seed_topology_matches(t,seeds@),
     ensures witness_table(out.predecessors@,t,seeds@,seeds.len() as int),
+        vstd::std_specs::btree::increasing_seq(out.traversed@.map(|i: int, row: TraversedEdge| row.edge)),
+        forall|edge: Edge| #[trigger] visited_edge(t, seeds.len() as int, edge)
+            <==> exists|at: int| 0 <= at < out.traversed.len() && (#[trigger] out.traversed@[at]).edge == edge,
+        forall|at: int| 0 <= at < out.traversed.len() ==> {
+            let row = #[trigger] out.traversed@[at];
+            row.seeds.keys().to_set() == all_causes(seeds@, seeds.len() as int,
+                |i: int| seed_edges(t,i), row.edge)
+        },
         compatible_seed_ids(seeds@) ==> forall|i:int| 0 <= i < seeds.len() ==> {
             let key = predecessor_id(#[trigger] seeds@[i as int]);
             out.predecessors@.dom().contains(key)
@@ -4251,9 +4319,40 @@ pub fn publish_closure(t: &Topology, seeds: &[Seed], rows: &impl ClosureRows) ->
         },
 {
     let causes = collect_causes(t,seeds);
-    let (reached,traversed) = rows.materialize(&t.names,causes.nodes,causes.edges);
+    let reached = rows.materialize(&t.names,causes.nodes);
+    let traversed = traversed_rows(&causes.edges);
     let out = Closure { reached, traversed, predecessors: causes.predecessors };
     proof {
+        let source = causes.edges@;
+        let pairs = public_pairs(out.traversed@);
+        let convert = |kv: (Edge, CauseSet)| (kv.0, kv.1.keys());
+        assert forall|i: int| 0 <= i < out.traversed.len() implies {
+            let row = #[trigger] out.traversed@[i];
+            source.contains_key(row.edge) && row.seeds.keys() == source[row.edge].keys()
+        } by {
+            let pair = pairs[i];
+            assert(pairs.to_set().contains(pair));
+            let kv = choose|kv: (Edge, CauseSet)| source.kv_pairs().contains(kv) && convert(kv) == pair;
+            assert(source.contains_key(kv.0) && source[kv.0] == kv.1);
+        }
+        assert forall|edge: Edge| #[trigger] visited_edge(t, seeds.len() as int, edge)
+            <==> exists|at: int| 0 <= at < out.traversed.len() && (#[trigger] out.traversed@[at]).edge == edge by {
+            if source.contains_key(edge) {
+                let pair = (edge,source[edge].keys());
+                assert(source.kv_pairs().contains((edge,source[edge])));
+                assert(pairs.to_set().contains(pair));
+                let i = choose|i: int| 0 <= i < pairs.len() && pairs[i] == pair;
+                assert(out.traversed@[i].edge == edge);
+            }
+        }
+        assert forall|at: int| 0 <= at < out.traversed.len() implies {
+            let row = #[trigger] out.traversed@[at];
+            row.seeds.keys().to_set() == all_causes(seeds@, seeds.len() as int,
+                |i: int| seed_edges(t,i), row.edge)
+        } by {
+            let edge = out.traversed@[at].edge;
+            assert(edge_causes(source,edge) == all_causes(seeds@, seeds.len() as int, |i: int| seed_edges(t,i), edge));
+        }
         if compatible_seed_ids(seeds@) {
             assert forall|i:int| 0 <= i < seeds.len() implies {
                 let key = predecessor_id(#[trigger] seeds@[i]);

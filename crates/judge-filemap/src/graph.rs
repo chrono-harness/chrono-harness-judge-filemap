@@ -229,17 +229,11 @@ impl crate::verified_graph::ClosureRows for ReportRows {
         &self,
         names: &[&str],
         nodes: BTreeMap<usize, CauseSet>,
-        edges: BTreeMap<Edge, CauseSet>,
-    ) -> (BTreeMap<String, CauseSet>, Vec<TraversedEdge>) {
-        let reached = nodes
+    ) -> BTreeMap<String, CauseSet> {
+        nodes
             .into_iter()
             .map(|(node, causes)| (names[node].to_owned(), causes))
-            .collect();
-        let traversed = edges
-            .into_iter()
-            .map(|(edge, seeds)| TraversedEdge { edge, seeds })
-            .collect();
-        (reached, traversed)
+            .collect()
     }
 }
 
