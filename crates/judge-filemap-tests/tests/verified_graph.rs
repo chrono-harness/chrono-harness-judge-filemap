@@ -182,6 +182,41 @@ proof fn unique_report_name(
     }
 }
 
+/// Different endpoint blobs, duplicate requests, role collisions, and external
+/// reads all affect the actual document delivered to the mixed classifier.
+#[cfg(verus_keep_ghost)]
+fn semantic_document_readers_use_the_selected_endpoint() {
+    use policy::document_policy::{Side, Source, path_available, select_source};
+    let available_2 = path_available(Side::Base,true,true,false);
+    assert(available_2);
+    let available_3 = path_available(Side::Candidate,true,true,false);
+    assert(!available_3);
+    let available_4 = path_available(Side::Base,true,false,true);
+    assert(!available_4);
+    let available_5 = path_available(Side::Candidate,true,false,true);
+    assert(available_5);
+    let available_6 = path_available(Side::Candidate,false,true,true);
+    assert(!available_6);
+    let source_7 = select_source(Side::Base,false,false,true,true,true,true,true);
+    assert(source_7 is Invalid);
+    let source_8 = select_source(Side::Candidate,true,true,true,true,true,true,true);
+    assert(source_8 is Invalid);
+    let source_9 = select_source(Side::Base,true,false,true,false,false,false,false);
+    assert(source_9 is Config);
+    let source_10 = select_source(Side::Base,true,false,true,true,false,false,false);
+    assert(source_10 is Judges);
+    let source_11 = select_source(Side::Candidate,true,false,true,true,true,false,false);
+    assert(source_11 is Projects);
+    let source_12 = select_source(Side::Base,true,false,true,true,true,true,false);
+    assert(source_12 is Filemap);
+    let source_13 = select_source(Side::Candidate,true,false,true,true,true,true,true);
+    assert(source_13 is Workflow);
+    let before = select_source(Side::Base,true,false,false,false,false,false,false);
+    let after = select_source(Side::Candidate,true,false,false,false,false,false,false);
+    assert(before matches Source::Read(label) && label@ == "base"@);
+    assert(after matches Source::Read(label) && label@ == "candidate"@);
+}
+
 /// A queried name may only be reported with the IDs of its own FIFO searches.
 #[cfg(verus_keep_ghost)]
 fn published_names_have_exactly_the_reaching_seed_ids(

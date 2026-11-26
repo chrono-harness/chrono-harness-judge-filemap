@@ -30,6 +30,14 @@ pub use graph_key::{
     byte_lt, byte_lt_asymmetric, byte_lt_strict, byte_lt_transitive, byte_prefix, byte_trichotomy,
 };
 
+#[cfg(verus_keep_ghost)]
+#[path = "classification.rs"]
+mod classification;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::classification::policy as document_policy;
+#[cfg(verus_keep_ghost)]
+pub use classification::policy as document_policy;
+
 /// Keep the public registration-type entry point for Rust callers.
 #[cfg(not(verus_keep_ghost))]
 pub fn valid_types(kind: EdgeKind, from: NodeKind, to: NodeKind) -> bool {
