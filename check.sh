@@ -46,16 +46,20 @@ stem=${metadata%/*}/${stem%.rmeta}
 chrono-host-bootstrap check-compiler-sources native "$stem" src/verified_graph.rs src/graph_key.rs src/graph.rs src/workflow_paths.rs src/finding_origin.rs src/workflow.rs src/registration_environment.rs src/records.rs ||
   coverage_failure "native library differs from required sources"
 
-# Check both registered compiler outputs against all required module inputs.
-graph=crates/judge-filemap/src/verified_graph.rs
-keys=crates/judge-filemap/src/graph_key.rs
-workflow=crates/judge-filemap/src/workflow_paths.rs
-findings=crates/judge-filemap/src/finding_origin.rs
-registration=crates/judge-filemap/src/registration_trace.rs
-environment=crates/judge-filemap/src/registration_environment.rs
-expectations=crates/judge-filemap-tests/tests/verified_graph.rs
-include=crates/judge-filemap-tests/tests/../../judge-filemap/src
+# Both roots compile the same graph modules. The independent root also reads
+# this deployed list when it checks the registered public graph source.
+proof_modules=(registration_trace.rs registration_environment.rs finding_origin.rs workflow_paths.rs graph_key.rs graph.rs)
+production=crates/judge-filemap/src
+independent=crates/judge-filemap-tests/tests
+included=$independent/../../judge-filemap/src
+product_inputs=("$production/verified_graph.rs")
+test_inputs=("$independent/verified_graph.rs" "$included/verified_graph.rs")
+for module in "${proof_modules[@]}"; do
+  product_inputs+=("$production/$module")
+  test_inputs+=("$included/$module")
+done
+test_inputs+=("$independent/../../../check.sh")
 chrono-host-bootstrap check-compiler-sources proof .chrono-harness/state/filemap-proofs/verify.filemap-graph.rlib \
-  "$graph" "$registration" "$environment" "$findings" "$workflow" "$keys" || coverage_failure "production graph proof has different compiler inputs"
+  "${product_inputs[@]}" || coverage_failure "production graph proof has different compiler inputs"
 chrono-host-bootstrap check-compiler-sources proof .chrono-harness/state/filemap-proofs/verify.filemap-graph-tests.rlib \
-  "$expectations" "$include/verified_graph.rs" "$include/registration_trace.rs" "$include/registration_environment.rs" "$include/finding_origin.rs" "$include/workflow_paths.rs" "$include/graph_key.rs" || coverage_failure "expectation proof has different compiler inputs"
+  "${test_inputs[@]}" || coverage_failure "expectation proof has different compiler inputs"

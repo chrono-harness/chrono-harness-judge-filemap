@@ -15,6 +15,70 @@ use vstd::string::StringSliceAdditionalSpecFns;
 use vstd::vpanic as panic;
 
 // Cargo builds this same release obligation as an executable for the publishing workflow.
+mod compiler_inputs {
+    #[cfg(not(verus_keep_ghost))]
+    use verus_builtin_macros::verus;
+    #[cfg(verus_keep_ghost)]
+    use vstd::{prelude::*, string::StringSliceAdditionalSpecFns};
+
+    verus! {
+    pub fn deployed_check() -> &'static str { include_str!("../../../check.sh") }
+
+    /// Both verifier commands take their graph sources from this Bash array.
+    /// Require exactly one occurrence of the name which implements public reached rows.
+    pub fn contains_report_module(names: &[&str]) -> (found: bool)
+        ensures found == (exists|i:int| 0 <= i < names.len()
+            && names@[i].spec_bytes() == "graph.rs".spec_bytes()
+            && forall|j:int| 0 <= j < names.len() && i != j ==>
+                (#[trigger] names@[j]).spec_bytes() != "graph.rs".spec_bytes()),
+    {
+        let mut first: Option<usize> = None;
+        let mut i = 0;
+        while i < names.len()
+            invariant i <= names.len(), match first {
+                None => forall|j:int| 0 <= j < i ==> (#[trigger] names@[j]).spec_bytes() != "graph.rs".spec_bytes(),
+                Some(at) => at < i && names@[at as int].spec_bytes() == "graph.rs".spec_bytes()
+                    && forall|j:int| 0 <= j < i && j != at ==> (#[trigger] names@[j]).spec_bytes() != "graph.rs".spec_bytes(),
+            },
+            decreases names.len() - i,
+        {
+            if super::policy::compare_bytes(names[i].as_bytes(),"graph.rs".as_bytes()) == 0 {
+                if let Some(at) = first {
+                    assert forall|j:int| 0 <= j < names.len() && names@[j].spec_bytes() == "graph.rs".spec_bytes()
+                        implies exists|k:int| 0 <= k < names.len() && k != j
+                            && (#[trigger] names@[k]).spec_bytes() == "graph.rs".spec_bytes() by {
+                        if j == at { assert(names@[i as int].spec_bytes() == "graph.rs".spec_bytes()); }
+                        else { assert(names@[at as int].spec_bytes() == "graph.rs".spec_bytes()); }
+                    }
+                    return false;
+                }
+                first = Some(i);
+            }
+            i += 1;
+        }
+        first.is_some()
+    }
+    }
+
+    #[cfg(not(verus_keep_ghost))]
+    #[test]
+    fn both_proof_roots_require_the_public_graph_module() {
+        let mut arrays = deployed_check().lines().filter_map(|line| {
+            line.strip_prefix("proof_modules=(")
+                .and_then(|value| value.strip_suffix(')'))
+        });
+        let names: Vec<_> = arrays
+            .next()
+            .expect("proof module list")
+            .split_ascii_whitespace()
+            .collect();
+        assert!(arrays.next().is_none());
+        assert!(contains_report_module(&names));
+        assert!(!contains_report_module(&[]));
+        assert!(!contains_report_module(&["graph.rs", "graph.rs"]));
+    }
+}
+
 mod release_observation {
     #[cfg(not(verus_keep_ghost))]
     use verus_builtin_macros::verus;
@@ -91,13 +155,61 @@ fn release_accepts_the_expected_observations_only() {
 use vstd::std_specs::cmp::OrdSpec;
 
 #[cfg(verus_keep_ghost)]
+proof fn unique_report_name(
+    names: Seq<&str>, nodes: Set<usize>, causes: spec_fn(usize) -> Set<Seq<u8>>,
+    node: usize, reported: Set<Seq<u8>>,
+)
+    requires policy::ordered_names(names), node < names.len(),
+        forall|i: usize| nodes.contains(i) ==> i < names.len(),
+    ensures
+        nodes.map(|i: usize| (names[i as int].spec_bytes(), causes(i)))
+            .contains((names[node as int].spec_bytes(), reported))
+        <==> nodes.contains(node) && causes(node) == reported,
+{
+    let row = |i: usize| (names[i as int].spec_bytes(), causes(i));
+    let requested = (names[node as int].spec_bytes(), reported);
+    if nodes.map(row).contains(requested) {
+        let i = choose|i: usize| nodes.contains(i) && row(i) == requested;
+        if i < node {
+            policy::byte_lt_strict(names[i as int].spec_bytes(),names[node as int].spec_bytes());
+        } else if node < i {
+            policy::byte_lt_strict(names[node as int].spec_bytes(),names[i as int].spec_bytes());
+        }
+        assert(i == node);
+    } else if nodes.contains(node) && causes(node) == reported {
+        assert(row(node) == requested);
+        assert(nodes.map(row).contains(row(node)));
+    }
+}
+
+/// A queried name may only be reported with the IDs of its own FIFO searches.
+#[cfg(verus_keep_ghost)]
+fn published_names_have_exactly_the_reaching_seed_ids(
+    t: &policy::Topology, seeds: &[policy::Seed], node: usize, reported: Ghost<Set<Seq<u8>>>,
+)
+    requires policy::seed_topology_matches(t,seeds@), node < t.names.len(),
+{
+    let result = policy::publish_closure(t,seeds);
+    proof {
+        let visits = |s: int| policy::seed_order(t,s).to_set();
+        let nodes = policy::all_members(seeds.len() as int,visits).filter(|i:usize| i < t.names.len());
+        let causes = |i:usize| policy::all_causes(seeds@,seeds.len() as int,visits,i);
+        unique_report_name(t.names@,nodes,causes,node,reported@);
+        let row = (t.names@[node as int].spec_bytes(), reported@);
+        assert(policy::reached_rows(result.reached.view()).contains(row) <==>
+            ((exists|s: int| 0 <= s < seeds.len() && (#[trigger] visits(s)).contains(node))
+                && reported@ == causes(node)));
+    }
+}
+
+#[cfg(verus_keep_ghost)]
 fn published_edges_have_exactly_the_reaching_seed_ids(
-    topology: &policy::Topology, seeds: &[policy::Seed], names: &impl policy::ClosureRows,
+    topology: &policy::Topology, seeds: &[policy::Seed],
     query: policy::Edge, earlier: usize, later: usize,
 )
     requires policy::seed_topology_matches(topology, seeds@),
 {
-    let result = policy::publish_closure(topology, seeds, names);
+    let result = policy::publish_closure(topology, seeds);
     let ghost rows = result.traversed@;
     let ghost reached = exists|s: int| 0 <= s < seeds.len()
         && policy::seed_edges(topology,s).contains(query);

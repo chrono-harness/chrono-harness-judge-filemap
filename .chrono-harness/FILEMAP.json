@@ -394,7 +394,16 @@
           "kind": "test-execution",
           "to": "test:judge-filemap-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-filemap-tests/tests/verified_graph.rs",
+            "operation": "verify.filemap-graph-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/judge-filemap-tests/Cargo.lock",
@@ -406,7 +415,11 @@
           "kind": "test-execution",
           "to": "test:judge-filemap-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": "crates/judge-filemap-tests/Cargo.toml",
@@ -563,7 +576,11 @@
           "kind": "test-execution",
           "to": "test:judge-filemap-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": "crates/judge-filemap/Cargo.toml",
@@ -575,7 +592,11 @@
           "kind": "test-execution",
           "to": "test:judge-filemap-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": "crates/judge-filemap/src/classification.rs",
@@ -611,7 +632,20 @@
           "kind": "test-execution",
           "to": "test:judge-filemap-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-filemap/src/verified_graph.rs",
+            "operation": "verify.filemap-graph"
+          },
+          {
+            "path": "crates/judge-filemap-tests/tests/verified_graph.rs",
+            "operation": "verify.filemap-graph-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/judge-filemap/src/graph_key.rs",
