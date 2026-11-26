@@ -4247,9 +4247,19 @@ pub fn collect_causes(t: &Topology, seeds: &[Seed]) -> (out: GraphCauses)
     }
 }
 
+/// Public name-to-seeds table, using the graph's verified byte ordering.
+#[cfg_attr(not(verus_keep_ghost), derive(Clone, Debug, serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(verus_keep_ghost), serde(transparent))]
+pub struct ReachedNodes {
+    pub(crate) entries: BTreeMap<PredecessorId, CauseSet>,
+}
+impl ReachedNodes {
+    pub closed spec fn view(&self) -> Map<PredecessorId,CauseSet> { self.entries@ }
+}
+
 #[cfg_attr(not(verus_keep_ghost), derive(Clone, Debug, serde::Serialize, serde::Deserialize))]
 pub struct Closure {
-    pub reached: BTreeMap<PredecessorId, CauseSet>,
+    pub reached: ReachedNodes,
     pub predecessors: BTreeMap<PredecessorId, PredecessorTree>,
     pub traversed: Vec<TraversedEdge>,
 }
@@ -4324,7 +4334,7 @@ pub open spec fn reached_by_seed(t: &Topology, seeds: Seq<Seed>) -> Set<(Seq<u8>
 pub fn publish_closure(t: &Topology, seeds: &[Seed]) -> (out: Closure)
     requires seed_topology_matches(t,seeds@),
     ensures witness_table(out.predecessors@,t,seeds@,seeds.len() as int),
-        reached_rows(out.reached@) == reached_by_seed(t,seeds@),
+        reached_rows(out.reached.view()) == reached_by_seed(t,seeds@),
         vstd::std_specs::btree::increasing_seq(out.traversed@.map(|i: int, row: TraversedEdge| row.edge)),
         forall|edge: Edge| #[trigger] visited_edge(t, seeds.len() as int, edge)
             <==> exists|at: int| 0 <= at < out.traversed.len() && (#[trigger] out.traversed@[at]).edge == edge,
@@ -4365,7 +4375,7 @@ pub fn publish_closure(t: &Topology, seeds: &[Seed]) -> (out: Closure)
         assert(named_members(t.names@,nodes) =~= reached_by_seed(t,seeds@));
     }
     let traversed = traversed_rows(&causes.edges);
-    let out = Closure { reached, traversed, predecessors: causes.predecessors };
+    let out = Closure { reached: ReachedNodes { entries: reached }, traversed, predecessors: causes.predecessors };
     proof {
         let source = causes.edges@;
         let pairs = public_pairs(out.traversed@);

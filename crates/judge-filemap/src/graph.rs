@@ -300,22 +300,42 @@ mod native {
             Ok(Self::from_names(&names))
         }
     }
-    impl std::borrow::Borrow<String> for PredecessorId {
-        fn borrow(&self) -> &String {
-            &self.0
+    impl crate::verified_graph::ReachedNodes {
+        pub fn get(&self, node: &str) -> Option<&CauseSet> {
+            self.entries.get(node)
+        }
+        pub fn contains_key(&self, node: &str) -> bool {
+            self.entries.contains_key(node)
+        }
+        pub fn is_empty(&self) -> bool {
+            self.entries.is_empty()
+        }
+        pub fn keys(&self) -> impl DoubleEndedIterator<Item = &String> + ExactSizeIterator {
+            self.entries.keys().map(|node| &node.0)
+        }
+        pub fn into_keys(self) -> impl DoubleEndedIterator<Item = String> + ExactSizeIterator {
+            self.entries.into_keys().map(|node| node.0)
         }
     }
-    impl std::ops::Deref for PredecessorId {
-        type Target = str;
-        fn deref(&self) -> &str {
-            &self.0
+
+    impl std::ops::Index<&str> for crate::verified_graph::ReachedNodes {
+        type Output = CauseSet;
+        fn index(&self, node: &str) -> &CauseSet {
+            &self.entries[node]
         }
     }
-    impl PartialEq<PredecessorId> for String {
-        fn eq(&self, other: &PredecessorId) -> bool {
-            self == &other.0
+
+    impl<'a> IntoIterator for &'a crate::verified_graph::ReachedNodes {
+        type Item = (&'a String, &'a CauseSet);
+        type IntoIter = std::iter::Map<
+            std::collections::btree_map::Iter<'a, PredecessorId, CauseSet>,
+            fn((&'a PredecessorId, &'a CauseSet)) -> Self::Item,
+        >;
+        fn into_iter(self) -> Self::IntoIter {
+            self.entries.iter().map(|(node, seeds)| (&node.0, seeds))
         }
     }
+
     impl std::borrow::Borrow<str> for PredecessorId {
         fn borrow(&self) -> &str {
             &self.0

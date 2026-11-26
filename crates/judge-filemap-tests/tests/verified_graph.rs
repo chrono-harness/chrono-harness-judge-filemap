@@ -132,7 +132,7 @@ fn published_names_have_exactly_the_reaching_seed_ids(
         let causes = |i:usize| policy::all_causes(seeds@,seeds.len() as int,visits,i);
         unique_report_name(t.names@,nodes,causes,node,reported@);
         let row = (t.names@[node as int].spec_bytes(), reported@);
-        assert(policy::reached_rows(result.reached@).contains(row) <==>
+        assert(policy::reached_rows(result.reached.view()).contains(row) <==>
             ((exists|s: int| 0 <= s < seeds.len() && (#[trigger] visits(s)).contains(node))
                 && reported@ == causes(node)));
     }
