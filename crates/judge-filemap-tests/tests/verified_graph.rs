@@ -15,6 +15,70 @@ use vstd::string::StringSliceAdditionalSpecFns;
 use vstd::vpanic as panic;
 
 // Cargo builds this same release obligation as an executable for the publishing workflow.
+mod compiler_inputs {
+    #[cfg(not(verus_keep_ghost))]
+    use verus_builtin_macros::verus;
+    #[cfg(verus_keep_ghost)]
+    use vstd::{prelude::*, string::StringSliceAdditionalSpecFns};
+
+    verus! {
+    pub fn deployed_check() -> &'static str { include_str!("../../../check.sh") }
+
+    /// Both verifier commands take their graph sources from this Bash array.
+    /// Require exactly one occurrence of the name which implements public reached rows.
+    pub fn contains_report_module(names: &[&str]) -> (found: bool)
+        ensures found == (exists|i:int| 0 <= i < names.len()
+            && names@[i].spec_bytes() == "graph.rs".spec_bytes()
+            && forall|j:int| 0 <= j < names.len() && i != j ==>
+                (#[trigger] names@[j]).spec_bytes() != "graph.rs".spec_bytes()),
+    {
+        let mut first: Option<usize> = None;
+        let mut i = 0;
+        while i < names.len()
+            invariant i <= names.len(), match first {
+                None => forall|j:int| 0 <= j < i ==> (#[trigger] names@[j]).spec_bytes() != "graph.rs".spec_bytes(),
+                Some(at) => at < i && names@[at as int].spec_bytes() == "graph.rs".spec_bytes()
+                    && forall|j:int| 0 <= j < i && j != at ==> (#[trigger] names@[j]).spec_bytes() != "graph.rs".spec_bytes(),
+            },
+            decreases names.len() - i,
+        {
+            if super::policy::compare_bytes(names[i].as_bytes(),"graph.rs".as_bytes()) == 0 {
+                if let Some(at) = first {
+                    assert forall|j:int| 0 <= j < names.len() && names@[j].spec_bytes() == "graph.rs".spec_bytes()
+                        implies exists|k:int| 0 <= k < names.len() && k != j
+                            && (#[trigger] names@[k]).spec_bytes() == "graph.rs".spec_bytes() by {
+                        if j == at { assert(names@[i as int].spec_bytes() == "graph.rs".spec_bytes()); }
+                        else { assert(names@[at as int].spec_bytes() == "graph.rs".spec_bytes()); }
+                    }
+                    return false;
+                }
+                first = Some(i);
+            }
+            i += 1;
+        }
+        first.is_some()
+    }
+    }
+
+    #[cfg(not(verus_keep_ghost))]
+    #[test]
+    fn both_proof_roots_require_the_public_graph_module() {
+        let mut arrays = deployed_check().lines().filter_map(|line| {
+            line.strip_prefix("proof_modules=(")
+                .and_then(|value| value.strip_suffix(')'))
+        });
+        let names: Vec<_> = arrays
+            .next()
+            .expect("proof module list")
+            .split_ascii_whitespace()
+            .collect();
+        assert!(arrays.next().is_none());
+        assert!(contains_report_module(&names));
+        assert!(!contains_report_module(&[]));
+        assert!(!contains_report_module(&["graph.rs", "graph.rs"]));
+    }
+}
+
 mod release_observation {
     #[cfg(not(verus_keep_ghost))]
     use verus_builtin_macros::verus;

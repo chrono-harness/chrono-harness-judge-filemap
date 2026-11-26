@@ -394,7 +394,16 @@
           "kind": "test-execution",
           "to": "test:judge-filemap-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-filemap-tests/tests/verified_graph.rs",
+            "operation": "verify.filemap-graph-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/judge-filemap-tests/Cargo.lock",
