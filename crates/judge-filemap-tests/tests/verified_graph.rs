@@ -15,6 +15,46 @@ use vstd::string::StringSliceAdditionalSpecFns;
 use vstd::vpanic as panic;
 
 verus! {
+#[cfg(verus_keep_ghost)]
+use vstd::std_specs::cmp::OrdSpec;
+
+#[cfg(verus_keep_ghost)]
+fn published_edges_have_exactly_the_reaching_seed_ids(
+    topology: &policy::Topology, seeds: &[policy::Seed], names: &impl policy::ClosureRows,
+    query: policy::Edge, earlier: usize, later: usize,
+)
+    requires policy::seed_topology_matches(topology, seeds@),
+{
+    let result = policy::publish_closure(topology, seeds, names);
+    let ghost rows = result.traversed@;
+    let ghost reached = exists|s: int| 0 <= s < seeds.len()
+        && policy::seed_edges(topology,s).contains(query);
+    let ghost membership = |s: int| policy::seed_edges(topology,s);
+    assert(reached == policy::visited_edge(topology, seeds.len() as int, query)) by {
+        if reached {
+            let s = choose|s: int| 0 <= s < seeds.len() && policy::seed_edges(topology,s).contains(query);
+            assert(membership(s).contains(query));
+        } else if policy::visited_edge(topology,seeds.len() as int,query) {
+            let s = choose|s: int| 0 <= s < seeds.len() && #[trigger] membership(s).contains(query);
+            assert(policy::seed_edges(topology,s).contains(query));
+        }
+    }
+    assert(reached == (exists|i: int| 0 <= i < rows.len() && (#[trigger] rows[i]).edge == query));
+    if earlier < result.traversed.len() {
+        let ghost edge = rows[earlier as int].edge;
+        assert(rows[earlier as int].seeds.keys().to_set() == policy::all_causes(
+            seeds@, seeds.len() as int, |s: int| policy::seed_edges(topology,s), edge));
+        if earlier < later && later < result.traversed.len() {
+            proof {
+                policy::edge_obeys_cmp();
+                let keys = rows.map(|i: int, row: policy::TraversedEdge| row.edge);
+                vstd::std_specs::btree::axiom_increasing_seq_meaning(keys);
+                assert(keys[earlier as int].cmp_spec(&keys[later as int]) is Less);
+            }
+        }
+    }
+}
+
 
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn registration_trace_keeps_local_prefix_remote_rows_and_local_suffix() {
