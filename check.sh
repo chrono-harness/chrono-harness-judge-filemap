@@ -48,7 +48,7 @@ chrono-host-bootstrap check-compiler-sources native "$stem" src/verified_graph.r
 
 # Both roots compile the same graph modules. The independent root also reads
 # this deployed list when it checks the registered public graph source.
-proof_modules=(registration_trace.rs registration_environment.rs finding_origin.rs workflow_paths.rs graph_key.rs graph.rs classification.rs)
+proof_modules=(registration_trace.rs registration_environment.rs finding_origin.rs workflow_paths.rs graph_key.rs classification.rs graph.rs)
 production=crates/judge-filemap/src
 independent=crates/judge-filemap-tests/tests
 included=$independent/../../judge-filemap/src
