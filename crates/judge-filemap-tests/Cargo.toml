@@ -40,3 +40,7 @@ name = "chrono-test-filemap-runner"
 path = "tests/support/runner.rs"
 test = false
 bench = false
+
+[[example]]
+name = "release_observation"
+path = "tests/verified_graph.rs"

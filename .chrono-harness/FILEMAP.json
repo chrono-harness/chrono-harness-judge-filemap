@@ -332,7 +332,16 @@
       "owner": "host",
       "surface": "product",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:judge-filemap-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".gitignore",
@@ -409,7 +418,11 @@
           "kind": "test-execution",
           "to": "test:judge-filemap-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": "crates/judge-filemap-tests/tests/fixtures/classifications.json",
