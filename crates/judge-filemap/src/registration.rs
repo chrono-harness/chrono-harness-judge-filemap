@@ -144,43 +144,60 @@ pub(crate) fn read(
     })
 }
 
+type Facts =
+    crate::verified_graph::registration_trace::Reader<Value, serde_json::Map<String, Value>>;
+
+fn reader(value: Value) -> Facts {
+    match value {
+        Value::Null => Facts::Null,
+        Value::Object(object) => Facts::Object(object),
+        other => Facts::Other(other),
+    }
+}
+
+fn processes(value: Value) -> Option<Vec<Value>> {
+    match value {
+        Value::Array(rows) => Some(rows),
+        _ => None,
+    }
+}
+
+impl crate::verified_graph::registration_trace::MergeError {
+    fn diagnostic(self) -> String {
+        use crate::verified_graph::registration_trace::MergeError::*;
+        let reason = match self {
+            UnboundLocal => "unbound local reader",
+            UnboundRegistration => "unbound registration reader",
+            MissingLocal => "missing local processes",
+            MissingRegistration => "missing registration processes",
+            DifferentBinding => "registration and FILEMAP bindings differ",
+            InvalidLocal => "invalid local processes",
+            InvalidRegistration => "invalid registration processes",
+            MissingPrefix => "missing reader prefix",
+        };
+        format!("E_GIT_FACTS: {reason}")
+    }
+}
+
 /// Insert the query's processes at the point it ran. Keep a single binding and original process order.
 pub(crate) fn with_registration_facts(
-    mut local: Value,
+    local: Value,
     at: usize,
     other: Option<Value>,
 ) -> Result<Value, String> {
-    let Some(mut other) = other else {
-        return Ok(local);
-    };
-    if local.is_null() && other.is_null() {
-        return Ok(Value::Null);
+    use crate::verified_graph::registration_trace::{Selection, bind_traces, select_readers};
+    match select_readers(reader(local), other.map(reader)).map_err(|e| e.diagnostic())? {
+        Selection::Original(Facts::Null) => Ok(Value::Null),
+        Selection::Original(Facts::Other(value)) => Ok(value),
+        Selection::Original(Facts::Object(map)) => Ok(Value::Object(map)),
+        Selection::Bind(mut left, mut right) => {
+            let local = left.remove("processes").map(processes);
+            let registration = right.remove("processes").map(processes);
+            let same_binding = local.is_some() && registration.is_some() && left == right;
+            let merged =
+                bind_traces(same_binding, local, at, registration).map_err(|e| e.diagnostic())?;
+            left.insert("processes".into(), Value::Array(merged));
+            Ok(Value::Object(left))
+        }
     }
-    let left = local
-        .as_object_mut()
-        .ok_or("E_GIT_FACTS: unbound local reader")?;
-    let right = other
-        .as_object_mut()
-        .ok_or("E_GIT_FACTS: unbound registration reader")?;
-    let mut own = left
-        .remove("processes")
-        .ok_or("E_GIT_FACTS: missing local processes")?;
-    let extra = right
-        .remove("processes")
-        .ok_or("E_GIT_FACTS: missing registration processes")?;
-    if left != right {
-        return Err("E_GIT_FACTS: registration and FILEMAP bindings differ".into());
-    }
-    let processes = own
-        .as_array_mut()
-        .ok_or("E_GIT_FACTS: invalid local processes")?;
-    let Value::Array(extra) = extra else {
-        return Err("E_GIT_FACTS: invalid registration processes".into());
-    };
-    if at > processes.len() {
-        return Err("E_GIT_FACTS: missing reader prefix".into());
-    }
-    processes.splice(at..at, extra);
-    left.insert("processes".into(), own);
-    Ok(local)
 }
