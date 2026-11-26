@@ -46,6 +46,14 @@ pub fn valid_types(kind: EdgeKind, from: NodeKind, to: NodeKind) -> bool {
     valid_node_roles(kind, role(from), role(to))
 }
 
+#[cfg(verus_keep_ghost)]
+#[path = "graph.rs"]
+mod report_graph;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::graph::named::named_nodes;
+#[cfg(verus_keep_ghost)]
+pub use report_graph::named::{named_members, named_nodes, reached_rows};
+
 verus! {
 
 /// Registration sequences encode command arguments, operation order and scheduling priority.
@@ -4166,6 +4174,7 @@ pub fn collect_causes(t: &Topology, seeds: &[Seed]) -> (out: GraphCauses)
     requires seed_topology_matches(t, seeds@),
     ensures
         witness_table(out.predecessors@,t,seeds@,seeds.len() as int),
+        forall|node: usize| out.nodes@.contains_key(node) ==> node < t.names.len(),
         out.nodes@.dom() == all_members(seeds.len() as int, |i: int| seed_order(t, i).to_set()),
         out.edges@.dom() == all_members(seeds.len() as int, |i: int| seed_edges(t, i)),
         forall|node: usize| #[trigger] node_causes(out.nodes@, node) == all_causes(seeds@,
@@ -4186,6 +4195,7 @@ pub fn collect_causes(t: &Topology, seeds: &[Seed]) -> (out: GraphCauses)
             visits == (|i: int| seed_order(t, i).to_set()), outgoing == (|i: int| seed_edges(t, i)),
             propagations.graph() == t, propagations.seed_values() == seeds@,
             propagations.cursor() <= seeds.len(),
+            forall|node: usize| nodes@.contains_key(node) ==> node < t.names.len(),
             nodes@.dom() == all_members(propagations.cursor() as int, visits),
             edges@.dom() == all_members(propagations.cursor() as int, outgoing),
             forall|key: usize| #[trigger] node_causes(nodes@, key)
@@ -4221,6 +4231,15 @@ pub fn collect_causes(t: &Topology, seeds: &[Seed]) -> (out: GraphCauses)
                 assert(edge_causes(old_edges, key) == all_causes(seeds@, at, outgoing, key));
             }
         }
+        proof {
+            let rows = item.propagation.rows@;
+            assert forall|node: usize| nodes@.contains_key(node) implies node < t.names.len() by {
+                if !old_nodes.contains_key(node) {
+                    let k = choose|k: int| 0 <= k < rows.len() && rows[k].index == node;
+                    assert(seed_order(t,at)[k] == node);
+                }
+            }
+        }
         proof { publish_witness(predecessors@, t, seeds@, at, item.propagation.predecessors); }
         let id = PredecessorId(item.seed.id.clone());
         assert(id == predecessor_id(seeds@[at]));
@@ -4230,7 +4249,7 @@ pub fn collect_causes(t: &Topology, seeds: &[Seed]) -> (out: GraphCauses)
 
 #[cfg_attr(not(verus_keep_ghost), derive(Clone, Debug, serde::Serialize, serde::Deserialize))]
 pub struct Closure {
-    pub reached: BTreeMap<String, CauseSet>,
+    pub reached: BTreeMap<PredecessorId, CauseSet>,
     pub predecessors: BTreeMap<PredecessorId, PredecessorTree>,
     pub traversed: Vec<TraversedEdge>,
 }
@@ -4291,19 +4310,21 @@ pub fn traversed_rows(edges: &BTreeMap<Edge, CauseSet>) -> (out: Vec<TraversedEd
     rows
 }
 
-/// Only the reached-name map is supplied by the native adapter.
-pub trait ClosureRows {
-    fn materialize(&self, names: &[&str], nodes: BTreeMap<usize, CauseSet>)
-        -> BTreeMap<String, CauseSet>;
-}
-
 pub open spec fn visited_edge(t: &Topology, count: int, edge: Edge) -> bool {
     all_members(count, |i: int| seed_edges(t,i)).contains(edge)
 }
 
-pub fn publish_closure(t: &Topology, seeds: &[Seed], rows: &impl ClosureRows) -> (out: Closure)
+/// Every publicly reported node name carries exactly the IDs of all seeds that reach it.
+pub open spec fn reached_by_seed(t: &Topology, seeds: Seq<Seed>) -> Set<(Seq<u8>, Set<Seq<u8>>)> {
+    let visits = |i: int| seed_order(t, i).to_set();
+    all_members(seeds.len() as int, visits).filter(|i: usize| i < t.names.len()).map(|i: usize|
+        (t.names@[i as int].spec_bytes(), all_causes(seeds, seeds.len() as int, visits, i)))
+}
+
+pub fn publish_closure(t: &Topology, seeds: &[Seed]) -> (out: Closure)
     requires seed_topology_matches(t,seeds@),
     ensures witness_table(out.predecessors@,t,seeds@,seeds.len() as int),
+        reached_rows(out.reached@) == reached_by_seed(t,seeds@),
         vstd::std_specs::btree::increasing_seq(out.traversed@.map(|i: int, row: TraversedEdge| row.edge)),
         forall|edge: Edge| #[trigger] visited_edge(t, seeds.len() as int, edge)
             <==> exists|at: int| 0 <= at < out.traversed.len() && (#[trigger] out.traversed@[at]).edge == edge,
@@ -4319,7 +4340,30 @@ pub fn publish_closure(t: &Topology, seeds: &[Seed], rows: &impl ClosureRows) ->
         },
 {
     let causes = collect_causes(t,seeds);
-    let reached = rows.materialize(&t.names,causes.nodes);
+    let reached = named_nodes(&t.names, &causes.nodes);
+    proof {
+        let visits = |i: int| seed_order(t,i).to_set();
+        let nodes = causes.nodes@;
+        let members = all_members(seeds.len() as int, visits);
+        let indexed = |p: (usize, CauseSet)| (t.names@[p.0 as int].spec_bytes(), p.1.keys().to_set());
+        let reached_at = |i: usize| (t.names@[i as int].spec_bytes(), all_causes(seeds@,seeds.len() as int,visits,i));
+        assert(members.filter(|i:usize| i < t.names.len()) =~= members);
+        assert forall |pair: (Seq<u8>,Set<Seq<u8>>)| named_members(t.names@,nodes).contains(pair)
+            <==> reached_by_seed(t,seeds@).contains(pair) by {
+            if named_members(t.names@,nodes).contains(pair) {
+                let p = choose|p: (usize,CauseSet)| nodes.kv_pairs().contains(p) && indexed(p) == pair;
+                assert(nodes.contains_key(p.0) && nodes[p.0] == p.1);
+                assert(node_causes(nodes,p.0) == all_causes(seeds@,seeds.len() as int,visits,p.0));
+                assert(members.contains(p.0) && reached_at(p.0) == pair);
+            } else if reached_by_seed(t,seeds@).contains(pair) {
+                let i = choose|i: usize| members.contains(i) && reached_at(i) == pair;
+                let p = (i,nodes[i]);
+                assert(node_causes(nodes,i) == all_causes(seeds@,seeds.len() as int,visits,i));
+                assert(nodes.kv_pairs().contains(p) && indexed(p) == pair);
+            }
+        }
+        assert(named_members(t.names@,nodes) =~= reached_by_seed(t,seeds@));
+    }
     let traversed = traversed_rows(&causes.edges);
     let out = Closure { reached, traversed, predecessors: causes.predecessors };
     proof {

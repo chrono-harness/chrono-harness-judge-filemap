@@ -91,13 +91,61 @@ fn release_accepts_the_expected_observations_only() {
 use vstd::std_specs::cmp::OrdSpec;
 
 #[cfg(verus_keep_ghost)]
+proof fn unique_report_name(
+    names: Seq<&str>, nodes: Set<usize>, causes: spec_fn(usize) -> Set<Seq<u8>>,
+    node: usize, reported: Set<Seq<u8>>,
+)
+    requires policy::ordered_names(names), node < names.len(),
+        forall|i: usize| nodes.contains(i) ==> i < names.len(),
+    ensures
+        nodes.map(|i: usize| (names[i as int].spec_bytes(), causes(i)))
+            .contains((names[node as int].spec_bytes(), reported))
+        <==> nodes.contains(node) && causes(node) == reported,
+{
+    let row = |i: usize| (names[i as int].spec_bytes(), causes(i));
+    let requested = (names[node as int].spec_bytes(), reported);
+    if nodes.map(row).contains(requested) {
+        let i = choose|i: usize| nodes.contains(i) && row(i) == requested;
+        if i < node {
+            policy::byte_lt_strict(names[i as int].spec_bytes(),names[node as int].spec_bytes());
+        } else if node < i {
+            policy::byte_lt_strict(names[node as int].spec_bytes(),names[i as int].spec_bytes());
+        }
+        assert(i == node);
+    } else if nodes.contains(node) && causes(node) == reported {
+        assert(row(node) == requested);
+        assert(nodes.map(row).contains(row(node)));
+    }
+}
+
+/// A queried name may only be reported with the IDs of its own FIFO searches.
+#[cfg(verus_keep_ghost)]
+fn published_names_have_exactly_the_reaching_seed_ids(
+    t: &policy::Topology, seeds: &[policy::Seed], node: usize, reported: Ghost<Set<Seq<u8>>>,
+)
+    requires policy::seed_topology_matches(t,seeds@), node < t.names.len(),
+{
+    let result = policy::publish_closure(t,seeds);
+    proof {
+        let visits = |s: int| policy::seed_order(t,s).to_set();
+        let nodes = policy::all_members(seeds.len() as int,visits).filter(|i:usize| i < t.names.len());
+        let causes = |i:usize| policy::all_causes(seeds@,seeds.len() as int,visits,i);
+        unique_report_name(t.names@,nodes,causes,node,reported@);
+        let row = (t.names@[node as int].spec_bytes(), reported@);
+        assert(policy::reached_rows(result.reached@).contains(row) <==>
+            ((exists|s: int| 0 <= s < seeds.len() && (#[trigger] visits(s)).contains(node))
+                && reported@ == causes(node)));
+    }
+}
+
+#[cfg(verus_keep_ghost)]
 fn published_edges_have_exactly_the_reaching_seed_ids(
-    topology: &policy::Topology, seeds: &[policy::Seed], names: &impl policy::ClosureRows,
+    topology: &policy::Topology, seeds: &[policy::Seed],
     query: policy::Edge, earlier: usize, later: usize,
 )
     requires policy::seed_topology_matches(topology, seeds@),
 {
-    let result = policy::publish_closure(topology, seeds, names);
+    let result = policy::publish_closure(topology, seeds);
     let ghost rows = result.traversed@;
     let ghost reached = exists|s: int| 0 <= s < seeds.len()
         && policy::seed_edges(topology,s).contains(query);
