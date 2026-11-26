@@ -53,11 +53,12 @@ production=crates/judge-filemap/src
 independent=crates/judge-filemap-tests/tests
 included=$independent/../../judge-filemap/src
 product_inputs=("$production/verified_graph.rs")
-test_inputs=("$independent/verified_graph.rs" "$included/verified_graph.rs" "$independent/../../../check.sh")
+test_inputs=("$independent/verified_graph.rs" "$included/verified_graph.rs")
 for module in "${proof_modules[@]}"; do
   product_inputs+=("$production/$module")
   test_inputs+=("$included/$module")
 done
+test_inputs+=("$independent/../../../check.sh")
 chrono-host-bootstrap check-compiler-sources proof .chrono-harness/state/filemap-proofs/verify.filemap-graph.rlib \
   "${product_inputs[@]}" || coverage_failure "production graph proof has different compiler inputs"
 chrono-host-bootstrap check-compiler-sources proof .chrono-harness/state/filemap-proofs/verify.filemap-graph-tests.rlib \
