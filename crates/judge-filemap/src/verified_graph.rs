@@ -13,6 +13,9 @@ use vstd::string::StringSliceAdditionalSpecFns;
 #[path = "registration_environment.rs"]
 pub mod registration_environment;
 
+#[path = "finding_origin.rs"]
+pub mod finding_origin;
+
 #[path = "workflow_paths.rs"]
 pub mod workflow_paths;
 

@@ -27,6 +27,56 @@ fn expect(actual: bool)
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn findings_choose_original_side_then_exact_record() {
+    use policy::finding_origin::*;
+    expect(matches!(record_source(Some((10u8,2)),Some((20u8,3)),true), Some((20u8,3u8))));
+    expect(matches!(record_source(Some((10u8,2)),Some((20u8,2)),true), Some((10u8,2u8))));
+    expect(matches!(record_source(Some((10u8,2)),Some((20u8,2)),false), Some((20u8,2u8))));
+    expect(matches!(record_source(Some((10u8,1)),None,false), Some((10u8,1u8))));
+    let delta = record_reference(3, "file", "base", "/0");
+    let old = record_reference(2, "file", "base", "/0");
+    let current = workflow_reference("candidate", "/2", Some(2), 2);
+    let migrated = workflow_reference("base", "/2", Some(2), 1);
+    proof {
+        reveal_strlit("file"); reveal_strlit("base"); reveal_strlit("candidate");
+        reveal_strlit("/registries/"); reveal_strlit("/workflow"); reveal_strlit("/0");
+        reveal_strlit("/2"); reveal_strlit(""); reveal_strlit("/registries/base/0");
+        reveal_strlit("/registries/candidate/workflow/2"); reveal_strlit("/registries/base/workflow");
+        assert(old@ =~= "/registries/base/0"@);
+        assert(current@ =~= "/registries/candidate/workflow/2"@);
+        assert(migrated@ =~= "/registries/base/workflow"@);
+    }
+    expect(policy::compare_bytes(delta.as_str().as_bytes(),"file".as_bytes()) == 0);
+    expect(policy::compare_bytes(old.as_str().as_bytes(),"/registries/base/0".as_bytes()) == 0);
+    expect(policy::compare_bytes(current.as_str().as_bytes(),"/registries/candidate/workflow/2".as_bytes()) == 0);
+    expect(policy::compare_bytes(migrated.as_str().as_bytes(),"/registries/base/workflow".as_bytes()) == 0);
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn findings_distinguish_repaired_history_and_report_the_actual_witness() {
+    use policy::finding_origin::*;
+    expect(matches!(ambiguity(2,true,true,Some(5u8)), Ambiguity::Historical));
+    expect(matches!(ambiguity(2,false,true,Some(5u8)), Ambiguity::Reached(5)));
+    expect(matches!(ambiguity::<u8>(2,false,false,None), Ambiguity::Historical));
+    expect(matches!(ambiguity(1,false,false,Some(5u8)), Ambiguity::Unique));
+    expect(matches!(reached_edge(Some(2u8),Some(5u8)), Some((2u8,true))));
+    expect(matches!(reached_edge(None,Some(5u8)), Some((5u8,false))));
+    expect(reached_edge::<u8>(None,None).is_none());
+    expect(matches!(problem(false,false,false),Some(EdgeProblem::MissingSource)));
+    expect(matches!(problem(true,false,false),Some(EdgeProblem::MissingTarget)));
+    expect(matches!(problem(true,true,false),Some(EdgeProblem::InvalidType)));
+    expect(problem(true,true,true).is_none());
+    let start = "seed".to_owned(); let end = "target".to_owned();
+    let steps = [edge("seed",policy::EdgeKind::Compile,"middle"), edge("middle",policy::EdgeKind::Compile,"last")];
+    let chain = witness(&start, &steps, Some(&end)); let inner = witness(&start,&steps,None);
+    expect(chain.len() == 4 && inner.len() == 3);
+    expect(policy::compare_bytes(chain[0].as_str().as_bytes(),"seed".as_bytes()) == 0);
+    expect(policy::compare_bytes(chain[1].as_str().as_bytes(),"middle".as_bytes()) == 0);
+    expect(policy::compare_bytes(chain[2].as_str().as_bytes(),"last".as_bytes()) == 0);
+    expect(policy::compare_bytes(chain[3].as_str().as_bytes(),"target".as_bytes()) == 0);
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn classifier_prefix_and_registry_relocation_keep_exact_results() {
     use policy::{classification_code, register_path_change};
     proof {
