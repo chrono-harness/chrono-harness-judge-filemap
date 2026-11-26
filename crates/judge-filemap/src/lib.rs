@@ -20,7 +20,7 @@ use registration::{Endpoint, NodeKind, NodeView, Views};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
-use verified_graph::valid_types;
+use verified_graph::{finding_origin, valid_types};
 
 struct CandidateTests<'a>(&'a BTreeMap<String, NodeView>);
 
@@ -254,28 +254,27 @@ pub fn produce(
     // into the fixed input that supplied its seed, including base-only records.
     let finding_reference = |seed: &Seed, endpoint: &str| -> String {
         if seed.reference.starts_with("/records/") {
-            let base = ("base", a.get(&seed.reference));
-            let candidate = ("candidate", b.get(&seed.reference));
-            let ordered = if endpoint == "base" {
-                [base, candidate]
-            } else {
-                [candidate, base]
+            let rank = |record: &records::InputRecord| {
+                finding_origin::record_rank(
+                    delta,
+                    &record.record.path,
+                    record.record.targets.contains(&seed.node),
+                )
             };
-            let sources = || {
-                ordered
-                    .iter()
-                    .filter_map(|&(side, row)| row.map(|r| (side, r)))
-            };
-            if let Some((_, record)) =
-                sources().find(|(_, r)| delta.iter().any(|d| d.path == r.record.path))
-            {
-                return record.record.path.clone();
-            }
-            let (side, record) = sources()
-                .find(|(_, r)| r.record.targets.contains(&seed.node))
-                .or_else(|| sources().next())
-                .expect("seed has a record at one endpoint");
-            return format!("/registries/{side}{}", record.pointer);
+            let ((side, record), rank) = finding_origin::record_source(
+                a.get(&seed.reference)
+                    .map(|record| (("base", record), rank(record))),
+                b.get(&seed.reference)
+                    .map(|record| (("candidate", record), rank(record))),
+                endpoint == "base",
+            )
+            .expect("seed has a record at one endpoint");
+            return finding_origin::record_reference(
+                rank,
+                &record.record.path,
+                side,
+                &record.pointer,
+            );
         }
         if let Some(row) = seed
             .reference
@@ -285,12 +284,12 @@ pub fn produce(
             let side = row["endpoint"].as_str().unwrap();
             let pointer = row["pointer"].as_str().unwrap();
             let origin = if side == "base" { base } else { candidate };
-            if origin.workflow()["schema_version"].as_u64()
-                == Some(origin.original_schemas()["workflow"].1)
-            {
-                return format!("/registries/{side}/workflow{pointer}");
-            }
-            return format!("/registries/{side}/workflow");
+            return finding_origin::workflow_reference(
+                side,
+                pointer,
+                origin.workflow()["schema_version"].as_u64(),
+                origin.original_schemas()["workflow"].1,
+            );
         }
         seed.reference.clone() // direct DELTA path
     };
@@ -298,7 +297,14 @@ pub fn produce(
     let mut historical_ambiguities = vec![];
     for (endpoint, inventory) in [("base", an), ("candidate", bn)] {
         for (node, view) in inventory {
-            if view.definitions.len() <= 1 {
+            use finding_origin::Ambiguity;
+            let disposition = finding_origin::ambiguity(
+                view.definitions.len(),
+                endpoint == "base",
+                views.repaired.contains(node),
+                closure.reached.get(node),
+            );
+            if matches!(disposition, Ambiguity::Unique) {
                 continue;
             }
             let ambiguity = NodeAmbiguity {
@@ -310,21 +316,11 @@ pub fn produce(
                     .map(|d| d.identity.clone())
                     .collect(),
             };
-            if let Some(causes) = closure.reached.get(node) {
-                if endpoint == "base" && views.repaired.contains(node) {
-                    historical_ambiguities.push(ambiguity);
-                    continue;
-                }
+            if let Ambiguity::Reached(causes) = disposition {
                 let cause = causes.first().unwrap();
                 let seed = verified_graph::seed_by_id(&seeds, cause).unwrap();
-                let mut witness = vec![seed.node.clone()];
-                witness.extend(
-                    closure
-                        .witness(cause, node)
-                        .unwrap()
-                        .iter()
-                        .map(|e| e.to.clone()),
-                );
+                let path = closure.witness(cause, node).unwrap();
+                let witness = finding_origin::witness(&seed.node, &path, None);
                 findings.push(Finding {
                     code: "E_NODE_AMBIGUOUS".into(),
                     level: "error".into(),
@@ -342,10 +338,7 @@ pub fn produce(
     }
     for e in &edges {
         for (endpoint, inventory) in [("base", an), ("candidate", bn)] {
-            if matches!(
-                (e.origin, endpoint),
-                (Origin::Base, "candidate") | (Origin::Candidate, "base")
-            ) {
+            if !finding_origin::on_endpoint(&e.origin, endpoint == "base") {
                 continue;
             }
             let edge = &e.edge;
@@ -364,41 +357,42 @@ pub fn produce(
                     None
                 }
             });
-            let message = match (from, inventory.get(&edge.to)) {
-                (Some(from), Some(to)) if !valid_types(edge.kind, from.kind, to.kind) => {
-                    Some("invalid typed edge endpoints".to_string())
-                }
-                (None, _) => Some(format!("missing source node {}", edge.from)),
-                (_, None) => Some(format!("missing target node {}", edge.to)),
-                _ => None,
-            };
-            if let Some(message) = message {
+            let to = inventory.get(&edge.to);
+            let valid = from
+                .zip(to)
+                .is_some_and(|(f, t)| valid_types(edge.kind, f.kind, t.kind));
+            if let Some(issue) = finding_origin::problem(from.is_some(), to.is_some(), valid) {
+                let message = match issue {
+                    finding_origin::EdgeProblem::MissingSource => {
+                        format!("missing source node {}", edge.from)
+                    }
+                    finding_origin::EdgeProblem::MissingTarget => {
+                        format!("missing target node {}", edge.to)
+                    }
+                    finding_origin::EdgeProblem::InvalidType => {
+                        "invalid typed edge endpoints".to_owned()
+                    }
+                };
                 let problem = EdgeProblem {
                     edge: edge.clone(),
                     endpoint: endpoint.into(),
                     message: message.clone(),
                 };
-                let reached = closure
-                    .reached
-                    .get(&edge.from)
-                    .map(|s| (&edge.from, s))
-                    .or_else(|| closure.reached.get(&edge.to).map(|s| (&edge.to, s)));
-                if let Some((node, causes)) = reached {
+                let reached = finding_origin::reached_edge(
+                    closure.reached.get(&edge.from).map(|s| (&edge.from, s)),
+                    closure.reached.get(&edge.to).map(|s| (&edge.to, s)),
+                );
+                if let Some(((node, causes), append_target)) = reached {
                     let cause = causes.first().unwrap();
                     let seed = verified_graph::seed_by_id(&seeds, cause).unwrap();
                     let path = closure.witness(cause, node).unwrap();
-                    let mut witness = vec![seed.node.clone()];
-                    witness.extend(path.iter().map(|e| e.to.clone()));
-                    if node == &edge.from {
-                        witness.push(edge.to.clone());
-                    }
+                    let witness = finding_origin::witness(
+                        &seed.node,
+                        &path,
+                        append_target.then_some(&edge.to),
+                    );
                     findings.push(Finding {
-                        code: if message.starts_with("missing") {
-                            "E_DANGLING_EDGE"
-                        } else {
-                            "E_EDGE_TYPE"
-                        }
-                        .into(),
+                        code: issue.code().into(),
                         level: "error".into(),
                         message: format!("{endpoint}: {message}: {edge:?}"),
                         delta_refs: vec![finding_reference(seed, endpoint)],

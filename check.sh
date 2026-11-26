@@ -43,17 +43,18 @@ metadata=$(jq -ers --arg manifest "$(pwd -P)/$product" '
 filename=${metadata##*/}
 stem=${filename#lib}
 stem=${metadata%/*}/${stem%.rmeta}
-chrono-host-bootstrap check-compiler-sources native "$stem" src/verified_graph.rs src/graph_key.rs src/graph.rs src/workflow_paths.rs src/workflow.rs src/registration_environment.rs src/records.rs ||
+chrono-host-bootstrap check-compiler-sources native "$stem" src/verified_graph.rs src/graph_key.rs src/graph.rs src/workflow_paths.rs src/finding_origin.rs src/workflow.rs src/registration_environment.rs src/records.rs ||
   coverage_failure "native library differs from required sources"
 
 # Check both registered compiler outputs against all required module inputs.
 graph=crates/judge-filemap/src/verified_graph.rs
 keys=crates/judge-filemap/src/graph_key.rs
 workflow=crates/judge-filemap/src/workflow_paths.rs
+findings=crates/judge-filemap/src/finding_origin.rs
 environment=crates/judge-filemap/src/registration_environment.rs
 expectations=crates/judge-filemap-tests/tests/verified_graph.rs
 include=crates/judge-filemap-tests/tests/../../judge-filemap/src
 chrono-host-bootstrap check-compiler-sources proof .chrono-harness/state/filemap-proofs/verify.filemap-graph.rlib \
-  "$graph" "$environment" "$workflow" "$keys" || coverage_failure "production graph proof has different compiler inputs"
+  "$graph" "$environment" "$findings" "$workflow" "$keys" || coverage_failure "production graph proof has different compiler inputs"
 chrono-host-bootstrap check-compiler-sources proof .chrono-harness/state/filemap-proofs/verify.filemap-graph-tests.rlib \
-  "$expectations" "$include/verified_graph.rs" "$include/registration_environment.rs" "$include/workflow_paths.rs" "$include/graph_key.rs" || coverage_failure "expectation proof has different compiler inputs"
+  "$expectations" "$include/verified_graph.rs" "$include/registration_environment.rs" "$include/finding_origin.rs" "$include/workflow_paths.rs" "$include/graph_key.rs" || coverage_failure "expectation proof has different compiler inputs"
