@@ -116,11 +116,11 @@ impl Program {
             .find(|p| p.is_file())
             .ok_or_else(|| format!("executable not found: {name}"))?;
         let mut file = fs::File::open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let mut hasher = Sha256::new();
+        let mut hasher = digest_io::IoWrapper(Sha256::new());
         std::io::copy(&mut file, &mut hasher).map_err(|e| e.to_string())?;
         Ok(Self {
             path,
-            digest: format!("{:x}", hasher.finalize()),
+            digest: hex::encode(hasher.0.finalize()),
         })
     }
     pub fn run(
