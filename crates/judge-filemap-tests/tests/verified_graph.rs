@@ -319,6 +319,16 @@ fn expect(actual: bool)
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn response_lengths_accept_exact_partition_only() {
+    expect(policy::complete_frame(0, 0, 0));
+    expect(policy::complete_frame(2, 5, 7));
+    expect(!policy::complete_frame(5, 3, 7));
+    expect(!policy::complete_frame(2, 4, 7));
+    expect(!policy::complete_frame(usize::MAX, 1, 0));
+    expect(policy::complete_frame(usize::MAX, 0, usize::MAX));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn findings_choose_original_side_then_exact_record() {
     use policy::finding_origin::*;
     expect(matches!(record_source(Some((10u8,2)),Some((20u8,3)),true), Some((20u8,3u8))));
