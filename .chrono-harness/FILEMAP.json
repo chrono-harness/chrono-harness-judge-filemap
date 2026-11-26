@@ -66,6 +66,27 @@
       ]
     },
     {
+      "path": ".chrono-harness/ci/roadmap.rs",
+      "owner": "host",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:judge-filemap-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-filemap-tests/tests/verified_graph.rs",
+            "operation": "verify.filemap-graph-tests"
+          }
+        ]
+      }
+    },
+    {
       "path": ".chrono-harness/ci/units.json",
       "owner": "host",
       "surface": "product",
@@ -236,7 +257,11 @@
           "kind": "test-execution",
           "to": "test:judge-filemap-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".config/mise/conf.d/selected-chrono-harness.toml",
@@ -249,28 +274,6 @@
           "to": "test:judge-filemap-tests"
         }
       ]
-    },
-    {
-      "path": ".github/workflows/dependabot-auto-merge.yml",
-      "owner": "host",
-      "surface": "product",
-      "cost": "unmeasured",
-      "edges": [],
-      "verification": {
-        "role": "data",
-        "roots": []
-      }
-    },
-    {
-      "path": ".github/dependabot.yml",
-      "owner": "host",
-      "surface": "product",
-      "cost": "unmeasured",
-      "edges": [],
-      "verification": {
-        "role": "data",
-        "roots": []
-      }
     },
     {
       "path": ".github/ISSUE_TEMPLATE/bug.yml",
@@ -328,18 +331,52 @@
       }
     },
     {
+      "path": ".github/dependabot.yml",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
       "path": ".github/roadmap.cjs",
       "owner": "host",
       "surface": "product",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:judge-filemap-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-filemap-tests/tests/verified_graph.rs",
+            "operation": "verify.filemap-graph-tests"
+          }
+        ]
+      }
     },
     {
-      "path": ".github/workflows/issue-roadmap.yml",
+      "path": ".github/workflows/actions.lock",
       "owner": "host",
       "surface": "product",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:judge-filemap-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".github/workflows/check.yml",
@@ -351,7 +388,43 @@
           "kind": "test-execution",
           "to": "test:judge-filemap-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": ".github/workflows/dependabot-auto-merge.yml",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": ".github/workflows/issue-roadmap.yml",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:judge-filemap-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-filemap-tests/tests/verified_graph.rs",
+            "operation": "verify.filemap-graph-tests"
+          }
+        ]
+      }
     },
     {
       "path": ".github/workflows/release.yml",
@@ -662,6 +735,31 @@
       ]
     },
     {
+      "path": "crates/judge-filemap/src/finding_origin.rs",
+      "owner": "judge-filemap",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:judge-filemap-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-filemap/src/verified_graph.rs",
+            "operation": "verify.filemap-graph"
+          },
+          {
+            "path": "crates/judge-filemap-tests/tests/verified_graph.rs",
+            "operation": "verify.filemap-graph-tests"
+          }
+        ]
+      }
+    },
+    {
       "path": "crates/judge-filemap/src/graph.rs",
       "owner": "judge-filemap",
       "surface": "product",
@@ -894,31 +992,6 @@
           "to": "test:judge-filemap-tests"
         }
       ]
-    },
-    {
-      "path": "crates/judge-filemap/src/finding_origin.rs",
-      "owner": "judge-filemap",
-      "surface": "product",
-      "cost": "unmeasured",
-      "edges": [
-        {
-          "kind": "test-execution",
-          "to": "test:judge-filemap-tests"
-        }
-      ],
-      "verification": {
-        "role": "program",
-        "roots": [
-          {
-            "path": "crates/judge-filemap/src/verified_graph.rs",
-            "operation": "verify.filemap-graph"
-          },
-          {
-            "path": "crates/judge-filemap-tests/tests/verified_graph.rs",
-            "operation": "verify.filemap-graph-tests"
-          }
-        ]
-      }
     },
     {
       "path": "crates/judge-filemap/src/workflow_paths.rs",
