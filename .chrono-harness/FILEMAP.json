@@ -549,6 +549,22 @@
       ]
     },
     {
+      "path": "crates/judge-filemap-tests/tests/fixtures/cost-registration-replies.json",
+      "owner": "judge-filemap-tests",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:judge-filemap-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
       "path": "crates/judge-filemap-tests/tests/fixtures/registration-standard.json",
       "owner": "judge-filemap-tests",
       "surface": "test",
@@ -630,7 +646,16 @@
           "kind": "test-execution",
           "to": "test:judge-filemap-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-filemap-tests/tests/verified_graph.rs",
+            "operation": "verify.filemap-graph-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/judge-filemap-tests/tests/support/runner.rs",
@@ -732,7 +757,20 @@
           "kind": "test-execution",
           "to": "test:judge-filemap-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-filemap/src/verified_graph.rs",
+            "operation": "verify.filemap-graph"
+          },
+          {
+            "path": "crates/judge-filemap-tests/tests/verified_graph.rs",
+            "operation": "verify.filemap-graph-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/judge-filemap/src/finding_origin.rs",

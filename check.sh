@@ -43,12 +43,12 @@ metadata=$(jq -ers --arg manifest "$(pwd -P)/$product" '
 filename=${metadata##*/}
 stem=${filename#lib}
 stem=${metadata%/*}/${stem%.rmeta}
-chrono-host-bootstrap check-compiler-sources native "$stem" src/verified_graph.rs src/graph_key.rs src/graph.rs src/workflow_paths.rs src/finding_origin.rs src/workflow.rs src/registration_environment.rs src/records.rs src/runtime.rs ||
+chrono-host-bootstrap check-compiler-sources native "$stem" src/verified_graph.rs src/cost_inputs.rs src/graph_key.rs src/graph.rs src/workflow_paths.rs src/finding_origin.rs src/workflow.rs src/registration_environment.rs src/records.rs src/runtime.rs ||
   coverage_failure "native library differs from required sources"
 
 # Both roots compile the same graph modules. The independent root also reads
 # this deployed list when it checks the registered public graph source.
-proof_modules=(runtime.rs registration_trace.rs registration_environment.rs finding_origin.rs workflow_paths.rs graph_key.rs classification.rs graph.rs)
+proof_modules=(runtime.rs cost_inputs.rs registration_trace.rs registration_environment.rs finding_origin.rs workflow_paths.rs graph_key.rs classification.rs graph.rs)
 production=crates/judge-filemap/src
 independent=crates/judge-filemap-tests/tests
 included=$independent/../../judge-filemap/src
@@ -59,7 +59,7 @@ for module in "${proof_modules[@]}"; do
   product_inputs+=("$production/$module")
   test_inputs+=("$included/$module")
 done
-test_inputs+=("$roadmap_inputs/../../.github/roadmap.cjs" "$roadmap_inputs/../../.github/workflows/issue-roadmap.yml"
+test_inputs+=("$independent/support/registration.rs" "$roadmap_inputs/../../.github/roadmap.cjs" "$roadmap_inputs/../../.github/workflows/issue-roadmap.yml"
   "$roadmap_inputs/../../.github/workflows/actions.lock" "$independent/../../../check.sh")
 chrono-host-bootstrap check-compiler-sources proof .chrono-harness/state/filemap-proofs/verify.filemap-graph.rlib \
   "${product_inputs[@]}" || coverage_failure "production graph proof has different compiler inputs"

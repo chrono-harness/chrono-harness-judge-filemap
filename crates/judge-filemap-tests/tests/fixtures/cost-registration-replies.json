@@ -1,0 +1,8 @@
+{
+  "complete": "{\"request_id\":\"cost-check\",\"base\":{\"nodes\":[\"before\"]},\"candidate\":{\"nodes\":[\"after\"]},\"git_facts\":{\"generation\":18446744073709551615}}",
+  "identity": "{\"request_id\":\"cost-check\",\"request_id\":\"cost-check\"}",
+  "diagnostic": "{\"request_id\":\"cost-check\",\"error\":\"first\",\"error\":\"second\"}",
+  "nested": "{\"request_id\":\"cost-check\",\"candidate\":{\"filemap\":{\"cost\":1,\"cost\":2}}}",
+  "wrong": "{\"request_id\":\"other\"}",
+  "error": "{\"request_id\":\"cost-check\",\"error\":\"registration rejected\",\"git_facts\":{\"observed\":true}}"
+}
