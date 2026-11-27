@@ -86,11 +86,11 @@ pub mod workflow_paths;
 
 #[path = "graph_key.rs"]
 mod graph_key;
-pub use graph_key::compare_bytes;
 #[cfg(verus_keep_ghost)]
 pub use graph_key::{
     byte_lt, byte_lt_asymmetric, byte_lt_strict, byte_lt_transitive, byte_prefix, byte_trichotomy,
 };
+pub use graph_key::{compare_bytes, equal_text};
 
 #[cfg(verus_keep_ghost)]
 #[path = "classification.rs"]
@@ -131,9 +131,8 @@ pub fn ordered_array_field(field: &str) -> (ordered: bool)
     ensures ordered == (field@ == "argv"@ || field@ == "version_argv"@ ||
         field@ == "operations"@ || field@ == "priority"@),
 {
-    use vstd::contrib::exec_spec::ExecSpecEq;
-    <&str>::exec_eq(field, "argv") || <&str>::exec_eq(field, "version_argv") ||
-        <&str>::exec_eq(field, "operations") || <&str>::exec_eq(field, "priority")
+    equal_text(field, "argv") || equal_text(field, "version_argv") ||
+        equal_text(field, "operations") || equal_text(field, "priority")
 }
 
 /// Classifier status codes occupy the first colon-delimited field of the diagnostic.
@@ -163,9 +162,8 @@ pub fn register_path_change(fields: &mut Vec<String>, base: Option<&str>, candid
         },
         changed == (fields.len() != 0),
 {
-    use vstd::contrib::exec_spec::ExecSpecEq;
     if let (Some(a), Some(b)) = (base, candidate) {
-        if !<&str>::exec_eq(a, b) {
+        if !equal_text(a, b) {
             fields.push("/$registry_path".to_owned());
         }
     }

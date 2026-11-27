@@ -504,6 +504,7 @@ fn registration_reply_identity_and_field_precedence_match_the_request() {
 
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn adapters_keep_the_first_reference_and_original_public_diagnostics() {
+    use policy::equal_text;
     use policy::{diagnostic, evaluated_status, field_difference, FieldDifference};
     let original = diagnostic("bad syntax", None);
     let duplicate = diagnostic("ignored", Some(("a/b", "2 column 9")));
@@ -512,10 +513,9 @@ fn adapters_keep_the_first_reference_and_original_public_diagnostics() {
         reveal_strlit("2 column 9"); reveal_strlit("duplicate JSON member a/b at line 2 column 9");
         assert("duplicate JSON member "@ + "a/b"@ + " at line "@ + "2 column 9"@ =~= "duplicate JSON member a/b at line 2 column 9"@);
     }
-    use vstd::contrib::exec_spec::ExecSpecEq;
-    if !<&str>::exec_eq(original.as_str(), "bad syntax") ||
-        !<&str>::exec_eq(duplicate.as_str(), "duplicate JSON member a/b at line 2 column 9") ||
-        !<&str>::exec_eq(evaluated_status(0), "pass") || !<&str>::exec_eq(evaluated_status(2), "fail") ||
+    if !equal_text(original.as_str(), "bad syntax") ||
+        !equal_text(duplicate.as_str(), "duplicate JSON member a/b at line 2 column 9") ||
+        !equal_text(evaluated_status(0), "pass") || !equal_text(evaluated_status(2), "fail") ||
         !matches!(field_difference(true,true), FieldDifference::Equal) ||
         !matches!(field_difference(false,true), FieldDifference::Members) ||
         !matches!(field_difference(false,false), FieldDifference::Leaf) { panic!(); }

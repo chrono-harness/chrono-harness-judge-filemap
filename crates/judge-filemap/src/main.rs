@@ -3,6 +3,11 @@ use vstd::prelude::verus;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 
+#[cfg(verus_keep_ghost)]
+use super::equal_text;
+#[cfg(not(verus_keep_ghost))]
+use chrono_judge_filemap::verified_graph::equal_text;
+
 verus! {
 pub enum Operation { Version, CostData, Evaluate, Summary, Endpoint, Closure, Collection, Prepare, Judge }
 
@@ -13,16 +18,15 @@ pub fn operation(first: Option<&str>, argc: usize) -> (op: Operation)
         Some(name) => if argc == 1 && name@ == "--version"@ { Operation::Version } else if name@ == "cost-data-v1"@ { Operation::CostData } else if name@ == "evaluate-data-v1"@ { Operation::Evaluate } else if name@ == "impact-summary"@ { Operation::Summary } else if name@ == "endpoint-tests"@ { Operation::Endpoint } else if name@ == "closure-v1"@ { Operation::Closure } else if name@ == "collection-tests-v1"@ { Operation::Collection } else if name@ == "cost-inputs-v1"@ { Operation::Prepare } else { Operation::Judge },
     },
 {
-    use vstd::contrib::exec_spec::ExecSpecEq;
     let name = match first { Some(name) => name, None => return Operation::Judge };
-    if argc == 1 && <&str>::exec_eq(name, "--version") { Operation::Version }
-    else if <&str>::exec_eq(name, "cost-data-v1") { Operation::CostData }
-    else if <&str>::exec_eq(name, "evaluate-data-v1") { Operation::Evaluate }
-    else if <&str>::exec_eq(name, "impact-summary") { Operation::Summary }
-    else if <&str>::exec_eq(name, "endpoint-tests") { Operation::Endpoint }
-    else if <&str>::exec_eq(name, "closure-v1") { Operation::Closure }
-    else if <&str>::exec_eq(name, "collection-tests-v1") { Operation::Collection }
-    else if <&str>::exec_eq(name, "cost-inputs-v1") { Operation::Prepare }
+    if argc == 1 && equal_text(name, "--version") { Operation::Version }
+    else if equal_text(name, "cost-data-v1") { Operation::CostData }
+    else if equal_text(name, "evaluate-data-v1") { Operation::Evaluate }
+    else if equal_text(name, "impact-summary") { Operation::Summary }
+    else if equal_text(name, "endpoint-tests") { Operation::Endpoint }
+    else if equal_text(name, "closure-v1") { Operation::Closure }
+    else if equal_text(name, "collection-tests-v1") { Operation::Collection }
+    else if equal_text(name, "cost-inputs-v1") { Operation::Prepare }
     else { Operation::Judge }
 }
 }
