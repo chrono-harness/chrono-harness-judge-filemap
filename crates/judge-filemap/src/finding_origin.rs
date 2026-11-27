@@ -1,6 +1,6 @@
 //! Attribute a reached registration problem to its original record and witness.
+use super::equal_text;
 use super::{Delta, Edge, Origin};
-use vstd::contrib::exec_spec::ExecSpecEq;
 #[cfg(not(verus_keep_ghost))]
 use vstd::prelude::verus;
 #[cfg(verus_keep_ghost)]
@@ -22,7 +22,7 @@ pub fn record_rank(
             forall|j: int| 0 <= j < i ==> #[trigger] delta@[j].path@ != path@,
         decreases delta.len() - i,
     {
-        if <&str>::exec_eq(delta[i].path.as_str(), path) { return 3; }
+        if equal_text(delta[i].path.as_str(), path) { return 3; }
         i += 1;
     }
     if contains_target { 2 } else { 1 }

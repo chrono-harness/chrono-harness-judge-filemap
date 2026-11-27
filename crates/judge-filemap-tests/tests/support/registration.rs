@@ -5,6 +5,11 @@ use vstd::prelude::verus;
 #[cfg(verus_keep_ghost)]
 use vstd::{prelude::*, string::StringSliceAdditionalSpecFns};
 
+#[cfg(verus_keep_ghost)]
+use crate::policy::equal_text;
+#[cfg(not(verus_keep_ghost))]
+use chrono_judge_filemap::verified_graph::equal_text;
+
 verus! {
 pub enum RequestKind { Cost, Impact, Invalid }
 
@@ -15,10 +20,9 @@ pub fn request_kind(count: usize, operation: &str) -> (kind: RequestKind)
         RequestKind::Invalid => count != 1 || (operation@ != "filemap-views"@ && operation@ != "impact-views-v1"@),
     },
 {
-    use vstd::contrib::exec_spec::ExecSpecEq;
     if count != 1 { RequestKind::Invalid }
-    else if <&str>::exec_eq(operation, "filemap-views") { RequestKind::Cost }
-    else if <&str>::exec_eq(operation, "impact-views-v1") { RequestKind::Impact }
+    else if equal_text(operation, "filemap-views") { RequestKind::Cost }
+    else if equal_text(operation, "impact-views-v1") { RequestKind::Impact }
     else { RequestKind::Invalid }
 }
 }

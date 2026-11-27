@@ -60,6 +60,18 @@ pub proof fn byte_trichotomy(a: Seq<u8>, b: Seq<u8>)
     }
 }
 
+/// Compare UTF-8 text using the native and verified graph key order.
+pub fn equal_text(a: &str, b: &str) -> (equal: bool)
+    ensures equal == (a@ == b@),
+{
+    let equal = compare_bytes(a.as_bytes(), b.as_bytes()) == 0;
+    proof {
+        vstd::utf8::encode_utf8_decode_utf8(a@);
+        vstd::utf8::encode_utf8_decode_utf8(b@);
+    }
+    equal
+}
+
 /// Compare the shared portion once, then break a prefix tie by length.
 pub fn compare_bytes(a: &[u8], b: &[u8]) -> (order: i8)
     ensures -1 <= order <= 1, order == 0 <==> a@ == b@,
