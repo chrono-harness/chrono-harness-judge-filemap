@@ -1,29 +1,79 @@
 //! Candidate FILEMAP impact policy. No operation execution, retirement or cost verdicts.
+#[cfg(not(verus_keep_ghost))]
+use vstd::prelude::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+#[cfg(verus_keep_ghost)]
+use super::RequiredTest;
+
+verus! {
+/// The public summary retains every requested test's node, in the original report order.
+pub fn required_names(tests: Vec<RequiredTest>) -> (names: Vec<String>)
+    ensures names@ == tests@.map_values(|test: RequiredTest| test.node),
+{
+    let mut names = Vec::new();
+    for test in it:tests.into_iter()
+        invariant names@ == it.elements.take(it.pos as int).map_values(|t: RequiredTest| t.node),
+    {
+        names.push(test.node);
+    }
+    names
+}
+
+pub fn evaluated_status(findings: usize) -> (status: &'static str)
+    ensures status@ == if findings == 0 { "pass"@ } else { "fail"@ },
+{
+    if findings == 0 { "pass" } else { "fail" }
+}
+}
+#[cfg(not(verus_keep_ghost))]
 mod classification;
+#[cfg(not(verus_keep_ghost))]
 pub mod cost_inputs;
+#[cfg(not(verus_keep_ghost))]
 pub mod graph;
+#[cfg(not(verus_keep_ghost))]
 mod records;
 /// Public change and finding types in FILEMAP impact evaluations.
+#[cfg(not(verus_keep_ghost))]
 mod request;
+#[cfg(not(verus_keep_ghost))]
 mod runtime;
+#[cfg(not(verus_keep_ghost))]
 mod strict_json;
 #[allow(unexpected_cfgs)]
+#[cfg(not(verus_keep_ghost))]
 pub mod verified_graph;
+#[cfg(not(verus_keep_ghost))]
 mod workflow;
+#[cfg(not(verus_keep_ghost))]
 pub use request::Finding;
+#[cfg(not(verus_keep_ghost))]
 use request::Request;
+#[cfg(not(verus_keep_ghost))]
 pub use verified_graph::Delta;
+#[cfg(not(verus_keep_ghost))]
 pub mod registration;
+#[cfg(not(verus_keep_ghost))]
 use graph::{Closure, Edge, EdgeKind, Origin, Seed, UnionEdge};
+#[cfg(not(verus_keep_ghost))]
 pub use records::{Change, Record, RecordPair};
+#[cfg(not(verus_keep_ghost))]
 use registration::{Endpoint, NodeKind, NodeView, Views};
+#[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize};
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::collections::{BTreeMap, BTreeSet};
+#[cfg(not(verus_keep_ghost))]
 use verified_graph::{finding_origin, valid_types};
 
+#[cfg(not(verus_keep_ghost))]
 struct CandidateTests<'a>(&'a BTreeMap<String, NodeView>);
 
+#[cfg(not(verus_keep_ghost))]
 impl verified_graph::CandidateTestLookup for CandidateTests<'_> {
     fn is_test(&self, node: &str) -> bool {
         self.0
@@ -32,37 +82,45 @@ impl verified_graph::CandidateTestLookup for CandidateTests<'_> {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub const IMPACT_SCHEMA: &str = "chrono-filemap-impact/v6";
 /// Complete endpoint definitions; zero is absent, several are ambiguous.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg(not(verus_keep_ghost))]
 pub struct NodePair {
     pub base_definitions: Vec<NodeDefinition>,
     pub candidate_definitions: Vec<NodeDefinition>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg(not(verus_keep_ghost))]
 pub struct NodeDefinition {
     pub identity: String,
     pub value: Value,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg(not(verus_keep_ghost))]
 pub struct NodeAmbiguity {
     pub node: String,
     pub endpoint: String,
     pub definitions: Vec<String>,
 }
+#[cfg(not(verus_keep_ghost))]
 pub use verified_graph::RequiredTest;
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg(not(verus_keep_ghost))]
 pub struct JudgeSelection {
     pub node: String,
     pub triggers: Vec<Edge>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg(not(verus_keep_ghost))]
 pub struct EdgeProblem {
     pub edge: Edge,
     pub endpoint: String,
     pub message: String,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg(not(verus_keep_ghost))]
 pub struct Impact {
     pub schema: String,
     pub workflow: Value,
@@ -82,6 +140,7 @@ pub struct Impact {
     pub limits: Vec<String>,
 }
 /// Decode the complete public impact before projecting fields used by projects and costs.
+#[cfg(not(verus_keep_ghost))]
 pub fn impact_summary(input: impl std::io::Read) -> Result<Value, serde_json::Error> {
     // The judge protocol hands its consumers a JSON value. Decode from that same
     // representation so a rejected field keeps the original Serde diagnostic.
@@ -90,12 +149,13 @@ pub fn impact_summary(input: impl std::io::Read) -> Result<Value, serde_json::Er
     Ok(summarize(impact))
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn summarize(impact: Impact) -> Value {
     json!({
         "schema": impact.schema,
         "delta": impact.delta,
         "reached": impact.closure.reached.into_keys().collect::<Vec<_>>(),
-        "required_tests": impact.required_tests.into_iter().map(|test| test.node).collect::<Vec<_>>(),
+        "required_tests": required_names(impact.required_tests),
         "tests": impact.tests,
         "retired_tests": impact.retired_tests,
     })
@@ -103,6 +163,7 @@ fn summarize(impact: Impact) -> Value {
 
 /// Read explicit edges. Consistency adapters may consume this inventory; it
 /// never discovers an input or creates an authoritative dependency.
+#[cfg(not(verus_keep_ghost))]
 pub fn edges(r: &Endpoint) -> BTreeSet<Edge> {
     let mut out = BTreeSet::new();
     let mut add = |from: &str, e: &Value| {
@@ -124,6 +185,7 @@ pub fn edges(r: &Endpoint) -> BTreeSet<Edge> {
 }
 /// Pure declaration-level impact. External input records are compared, not retained input bytes.
 /// Callers must supply factual, complete DELTA; the judge entrypoint binds it to fixed Git objects.
+#[cfg(not(verus_keep_ghost))]
 pub fn produce(
     views: &Views,
     delta: &[Delta],
@@ -460,6 +522,7 @@ pub fn produce(
 /// Declaration-level scheduling impact, before external SDK snapshots exist.
 /// Final admission continues to use produce_for_request with actual validated inputs.
 /// Query declaration-level test obligations from two fixed commits of this host.
+#[cfg(not(verus_keep_ghost))]
 pub fn endpoint_tests(root: &std::path::Path, input: impl std::io::Read) -> Result<Value, String> {
     #[derive(Deserialize, Serialize)]
     #[serde(deny_unknown_fields)]
@@ -510,6 +573,7 @@ pub fn endpoint_tests(root: &std::path::Path, input: impl std::io::Read) -> Resu
 
 /// Scheduling projects fixed endpoints. Collection projects the caller's validated
 /// registration view and effective inputs, including historical conversion.
+#[cfg(not(verus_keep_ghost))]
 pub fn collection_tests(
     root: &std::path::Path,
     input: impl std::io::Read,
@@ -550,6 +614,7 @@ pub fn collection_tests(
     )
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn produce_for_request(
     req: &Request,
     views: &Views,
@@ -568,6 +633,7 @@ fn produce_for_request(
     }
     Ok(produce(views, &req.delta, changes))
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn decision(input: impl std::io::Read) -> Result<Value, String> {
     let envelope: Value = serde_json::from_reader(input).map_err(|e| e.to_string())?;
     let req = Request::new(envelope["request"].clone())?;
@@ -589,7 +655,7 @@ pub fn decision(input: impl std::io::Read) -> Result<Value, String> {
     })();
     let (status, findings) = match result {
         Ok((impact, findings, view)) => {
-            let status = if findings.is_empty() { "pass" } else { "fail" };
+            let status = evaluated_status(findings.len());
             outputs.insert(
                 "impact".into(),
                 serde_json::to_value(impact).map_err(|e| e.to_string())?,
@@ -618,6 +684,7 @@ pub fn decision(input: impl std::io::Read) -> Result<Value, String> {
     };
     Ok(json!({"status":status,"findings":findings,"outputs":outputs}))
 }
+#[cfg(not(verus_keep_ghost))]
 fn evaluate(
     req: &Request,
     reader: &mut runtime::Reader,

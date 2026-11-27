@@ -857,7 +857,20 @@
           "kind": "test-execution",
           "to": "test:judge-filemap-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-filemap/src/verified_graph.rs",
+            "operation": "verify.filemap-graph"
+          },
+          {
+            "path": "crates/judge-filemap-tests/tests/verified_graph.rs",
+            "operation": "verify.filemap-graph-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/judge-filemap/src/main.rs",
@@ -869,7 +882,20 @@
           "kind": "test-execution",
           "to": "test:judge-filemap-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-filemap/src/verified_graph.rs",
+            "operation": "verify.filemap-graph"
+          },
+          {
+            "path": "crates/judge-filemap-tests/tests/verified_graph.rs",
+            "operation": "verify.filemap-graph-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/judge-filemap/src/records.rs",
@@ -881,7 +907,20 @@
           "kind": "test-execution",
           "to": "test:judge-filemap-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-filemap/src/verified_graph.rs",
+            "operation": "verify.filemap-graph"
+          },
+          {
+            "path": "crates/judge-filemap-tests/tests/verified_graph.rs",
+            "operation": "verify.filemap-graph-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/judge-filemap/src/registration.rs",
@@ -1018,7 +1057,20 @@
           "kind": "test-execution",
           "to": "test:judge-filemap-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-filemap/src/verified_graph.rs",
+            "operation": "verify.filemap-graph"
+          },
+          {
+            "path": "crates/judge-filemap-tests/tests/verified_graph.rs",
+            "operation": "verify.filemap-graph-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/judge-filemap/src/verified_graph.rs",
@@ -1055,7 +1107,20 @@
           "kind": "test-execution",
           "to": "test:judge-filemap-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/judge-filemap/src/verified_graph.rs",
+            "operation": "verify.filemap-graph"
+          },
+          {
+            "path": "crates/judge-filemap-tests/tests/verified_graph.rs",
+            "operation": "verify.filemap-graph-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/judge-filemap/src/workflow_paths.rs",

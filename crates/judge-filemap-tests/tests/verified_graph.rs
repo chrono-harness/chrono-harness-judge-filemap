@@ -502,6 +502,88 @@ fn registration_reply_identity_and_field_precedence_match_the_request() {
         || !matches!(reply_fields(false,false,false,false,false,false), ReplyFields::Views) { panic!(); }
 }
 
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn adapters_keep_the_first_reference_and_original_public_diagnostics() {
+    use policy::{diagnostic, evaluated_status, field_difference, FieldDifference};
+    let original = diagnostic("bad syntax", None);
+    let duplicate = diagnostic("ignored", Some(("a/b", "2 column 9")));
+    proof {
+        reveal_strlit("duplicate JSON member "); reveal_strlit("a/b"); reveal_strlit(" at line ");
+        reveal_strlit("2 column 9"); reveal_strlit("duplicate JSON member a/b at line 2 column 9");
+        assert("duplicate JSON member "@ + "a/b"@ + " at line "@ + "2 column 9"@ =~= "duplicate JSON member a/b at line 2 column 9"@);
+    }
+    use vstd::contrib::exec_spec::ExecSpecEq;
+    if !<&str>::exec_eq(original.as_str(), "bad syntax") ||
+        !<&str>::exec_eq(duplicate.as_str(), "duplicate JSON member a/b at line 2 column 9") ||
+        !<&str>::exec_eq(evaluated_status(0), "pass") || !<&str>::exec_eq(evaluated_status(2), "fail") ||
+        !matches!(field_difference(true,true), FieldDifference::Equal) ||
+        !matches!(field_difference(false,true), FieldDifference::Members) ||
+        !matches!(field_difference(false,false), FieldDifference::Leaf) { panic!(); }
+}
+
+#[cfg(verus_keep_ghost)]
+fn command_names_choose_the_public_consumer() {
+    use policy::adapter_cli::{operation, Operation};
+    proof {
+        reveal_strlit("--version");
+        reveal_strlit("cost-data-v1");
+        reveal_strlit("evaluate-data-v1");
+        reveal_strlit("impact-summary");
+        reveal_strlit("endpoint-tests");
+        reveal_strlit("closure-v1");
+        reveal_strlit("collection-tests-v1");
+        reveal_strlit("cost-inputs-v1");
+        reveal_strlit("next");
+        assert("cost-data-v1"@.len() != "--version"@.len());
+        assert("evaluate-data-v1"@.len() != "--version"@.len());
+        assert("evaluate-data-v1"@.len() != "cost-data-v1"@.len());
+        assert("impact-summary"@.len() != "--version"@.len());
+        assert("impact-summary"@.len() != "cost-data-v1"@.len());
+        assert("impact-summary"@.len() != "evaluate-data-v1"@.len());
+        assert("endpoint-tests"@.len() != "--version"@.len());
+        assert("endpoint-tests"@.len() != "cost-data-v1"@.len());
+        assert("endpoint-tests"@.len() != "evaluate-data-v1"@.len());
+        assert("endpoint-tests"@[0] != "impact-summary"@[0]);
+        assert("closure-v1"@.len() != "--version"@.len());
+        assert("closure-v1"@.len() != "cost-data-v1"@.len());
+        assert("closure-v1"@.len() != "evaluate-data-v1"@.len());
+        assert("closure-v1"@.len() != "impact-summary"@.len());
+        assert("closure-v1"@.len() != "endpoint-tests"@.len());
+        assert("collection-tests-v1"@.len() != "--version"@.len());
+        assert("collection-tests-v1"@.len() != "cost-data-v1"@.len());
+        assert("collection-tests-v1"@.len() != "evaluate-data-v1"@.len());
+        assert("collection-tests-v1"@.len() != "impact-summary"@.len());
+        assert("collection-tests-v1"@.len() != "endpoint-tests"@.len());
+        assert("collection-tests-v1"@.len() != "closure-v1"@.len());
+        assert("cost-inputs-v1"@.len() != "--version"@.len());
+        assert("cost-inputs-v1"@.len() != "cost-data-v1"@.len());
+        assert("cost-inputs-v1"@.len() != "evaluate-data-v1"@.len());
+        assert("cost-inputs-v1"@[0] != "impact-summary"@[0]);
+        assert("cost-inputs-v1"@[0] != "endpoint-tests"@[0]);
+        assert("cost-inputs-v1"@.len() != "closure-v1"@.len());
+        assert("cost-inputs-v1"@.len() != "collection-tests-v1"@.len());
+        assert("next"@.len() != "--version"@.len());
+        assert("next"@.len() != "cost-data-v1"@.len());
+        assert("next"@.len() != "evaluate-data-v1"@.len());
+        assert("next"@.len() != "impact-summary"@.len());
+        assert("next"@.len() != "endpoint-tests"@.len());
+        assert("next"@.len() != "closure-v1"@.len());
+        assert("next"@.len() != "collection-tests-v1"@.len());
+        assert("next"@.len() != "cost-inputs-v1"@.len());
+    }
+    if !matches!(operation(Some("--version"),1),Operation::Version) { panic!(); }
+    if !matches!(operation(Some("cost-data-v1"),1),Operation::CostData) { panic!(); }
+    if !matches!(operation(Some("evaluate-data-v1"),1),Operation::Evaluate) { panic!(); }
+    if !matches!(operation(Some("impact-summary"),1),Operation::Summary) { panic!(); }
+    if !matches!(operation(Some("endpoint-tests"),1),Operation::Endpoint) { panic!(); }
+    if !matches!(operation(Some("closure-v1"),1),Operation::Closure) { panic!(); }
+    if !matches!(operation(Some("collection-tests-v1"),1),Operation::Collection) { panic!(); }
+    if !matches!(operation(Some("cost-inputs-v1"),1),Operation::Prepare) { panic!(); }
+    if !matches!(operation(None,1),Operation::Judge)
+       || !matches!(operation(Some("--version"),2),Operation::Judge)
+       || !matches!(operation(Some("next"),1),Operation::Judge) { panic!(); }
+}
+
 fn expect(actual: bool)
     requires actual,
 {

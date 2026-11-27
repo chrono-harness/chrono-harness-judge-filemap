@@ -1,14 +1,51 @@
 //! Lower explicit workflow test requirements to typed edges before execution.
+#[cfg(not(verus_keep_ghost))]
+use vstd::prelude::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+pub trait RequirementEdges: Sized {
+    spec fn contains(&self, edge: &Self) -> bool;
+    fn contains_edge(&self, edge: &Self) -> (present: bool)
+        ensures present == self.contains(edge);
+}
+/// An edge may occur in several requirements, but its reference names the first declaring row.
+pub fn first_requirement<R: RequirementEdges>(rows: &[R], edge: &R) -> (found: Option<usize>)
+    ensures match found {
+        Some(i) => i < rows.len() && rows@[i as int].contains(edge)
+            && forall|j: int| 0 <= j < i ==> !(#[trigger] rows@[j].contains(edge)),
+        None => forall|j: int| 0 <= j < rows.len() ==> !(#[trigger] rows@[j].contains(edge)),
+    },
+{
+    let mut i = 0;
+    while i < rows.len()
+        invariant i <= rows.len(), forall|j: int| 0 <= j < i ==> !(#[trigger] rows@[j].contains(edge)),
+        decreases rows.len() - i,
+    {
+        if rows[i].contains_edge(edge) { return Some(i); }
+        i += 1;
+    }
+    None
+}
+}
+#[cfg(not(verus_keep_ghost))]
 use crate::Delta;
+#[cfg(not(verus_keep_ghost))]
 use crate::registration::Endpoint;
+#[cfg(not(verus_keep_ghost))]
 use crate::verified_graph::workflow_paths;
+#[cfg(not(verus_keep_ghost))]
 use crate::{
     graph::{Edge, EdgeKind},
     records::InputRecord,
 };
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::collections::{BTreeMap, BTreeSet};
 
+#[cfg(not(verus_keep_ghost))]
 pub fn select(
     a: &Endpoint,
     b: &Endpoint,
@@ -122,6 +159,7 @@ pub fn select(
         "certification":"not performed; this output selects declared tests only"}),
     )
 }
+#[cfg(not(verus_keep_ghost))]
 fn requirement(
     endpoint: &str,
     registry: &str,
@@ -148,6 +186,7 @@ fn requirement(
         .collect();
     json!({"endpoint":endpoint,"registry":registry,"pointer":pointer,"reason":reason,"trigger_paths":paths,"tests":tests,"edges":edges})
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn edges(selection: &Value, endpoint: &str) -> BTreeSet<Edge> {
     selection["requirements"]
         .as_array()
@@ -158,17 +197,16 @@ pub fn edges(selection: &Value, endpoint: &str) -> BTreeSet<Edge> {
         .map(|e| serde_json::from_value(e.clone()).unwrap())
         .collect()
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn reference(selection: &Value, edge: &Edge) -> Option<String> {
-    selection["requirements"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .enumerate()
-        .find(|(_, r)| {
-            r["edges"]
-                .as_array()
-                .unwrap()
-                .contains(&serde_json::to_value(edge).unwrap())
-        })
-        .map(|(i, _)| format!("/impact/workflow/requirements/{i}"))
+    let rows = selection["requirements"].as_array()?;
+    let edge = serde_json::to_value(edge).unwrap();
+    first_requirement(rows, &edge).map(|i| format!("/impact/workflow/requirements/{i}"))
+}
+
+#[cfg(not(verus_keep_ghost))]
+impl RequirementEdges for Value {
+    fn contains_edge(&self, edge: &Self) -> bool {
+        self["edges"].as_array().unwrap().contains(edge)
+    }
 }

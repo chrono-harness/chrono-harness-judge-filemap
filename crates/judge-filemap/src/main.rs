@@ -1,47 +1,69 @@
+#[cfg(not(verus_keep_ghost))]
+use vstd::prelude::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+pub enum Operation { Version, CostData, Evaluate, Summary, Endpoint, Closure, Collection, Prepare, Judge }
+
+/// Unknown and non-UTF-8 words are passed to the public judge. Version accepts a sole argument.
+pub fn operation(first: Option<&str>, argc: usize) -> (op: Operation)
+    ensures op == match first {
+        None => Operation::Judge,
+        Some(name) => if argc == 1 && name@ == "--version"@ { Operation::Version } else if name@ == "cost-data-v1"@ { Operation::CostData } else if name@ == "evaluate-data-v1"@ { Operation::Evaluate } else if name@ == "impact-summary"@ { Operation::Summary } else if name@ == "endpoint-tests"@ { Operation::Endpoint } else if name@ == "closure-v1"@ { Operation::Closure } else if name@ == "collection-tests-v1"@ { Operation::Collection } else if name@ == "cost-inputs-v1"@ { Operation::Prepare } else { Operation::Judge },
+    },
+{
+    use vstd::contrib::exec_spec::ExecSpecEq;
+    let name = match first { Some(name) => name, None => return Operation::Judge };
+    if argc == 1 && <&str>::exec_eq(name, "--version") { Operation::Version }
+    else if <&str>::exec_eq(name, "cost-data-v1") { Operation::CostData }
+    else if <&str>::exec_eq(name, "evaluate-data-v1") { Operation::Evaluate }
+    else if <&str>::exec_eq(name, "impact-summary") { Operation::Summary }
+    else if <&str>::exec_eq(name, "endpoint-tests") { Operation::Endpoint }
+    else if <&str>::exec_eq(name, "closure-v1") { Operation::Closure }
+    else if <&str>::exec_eq(name, "collection-tests-v1") { Operation::Collection }
+    else if <&str>::exec_eq(name, "cost-inputs-v1") { Operation::Prepare }
+    else { Operation::Judge }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use std::io::Write;
 
+#[cfg(not(verus_keep_ghost))]
 fn main() -> std::process::ExitCode {
     use std::os::unix::process::CommandExt;
     let arguments: Vec<_> = std::env::args_os().skip(1).collect();
-    if arguments == [std::ffi::OsStr::new("--version")] {
+    let name = arguments.first().and_then(|name| name.to_str());
+    let op = operation(name, arguments.len());
+    if matches!(op, Operation::Version) {
         println!("chrono-judge-filemap {}", env!("CARGO_PKG_VERSION"));
         return 0.into();
     }
-    let mut args = arguments.iter();
-    let name = args.next();
-    let query = name.and_then(|name| name.to_str());
-    if let Some(
-        operation @ ("cost-data-v1"
-        | "evaluate-data-v1"
-        | "impact-summary"
-        | "endpoint-tests"
-        | "closure-v1"
-        | "collection-tests-v1"),
-    ) = query
-    {
-        if args.next().is_some() {
-            match operation {
-                "impact-summary" => {
-                    eprintln!("E_USAGE: impact-summary reads one FILEMAP impact from stdin")
-                }
-                _ => eprintln!("E_USAGE: {operation} reads one query from stdin"),
+    if !matches!(op, Operation::Judge | Operation::Prepare) {
+        if arguments.len() != 1 {
+            if matches!(op, Operation::Summary) {
+                eprintln!("E_USAGE: impact-summary reads one FILEMAP impact from stdin");
+            } else {
+                eprintln!("E_USAGE: {} reads one query from stdin", name.unwrap());
             }
             return 2.into();
         }
         let input = std::io::stdin().lock();
-        let value = match operation {
-            "cost-data-v1" => chrono_judge_filemap::cost_inputs::prepare(input),
-            "evaluate-data-v1" => chrono_judge_filemap::decision(input),
-            "impact-summary" => {
+        let value = match op {
+            Operation::CostData => chrono_judge_filemap::cost_inputs::prepare(input),
+            Operation::Evaluate => chrono_judge_filemap::decision(input),
+            Operation::Summary => {
                 chrono_judge_filemap::impact_summary(input).map_err(|e| e.to_string())
             }
-            "closure-v1" => chrono_judge_filemap::graph::query_closure(input),
-            "collection-tests-v1" => std::env::current_dir()
+            Operation::Closure => chrono_judge_filemap::graph::query_closure(input),
+            Operation::Collection => std::env::current_dir()
                 .map_err(|e| e.to_string())
                 .and_then(|root| chrono_judge_filemap::collection_tests(&root, input)),
-            _ => std::env::current_dir()
+            Operation::Endpoint => std::env::current_dir()
                 .map_err(|e| e.to_string())
                 .and_then(|root| chrono_judge_filemap::endpoint_tests(&root, input)),
+            Operation::Judge | Operation::Prepare | Operation::Version => unreachable!(),
         };
         let mut output = std::io::stdout().lock();
         let result = value.and_then(|value| {
@@ -64,7 +86,7 @@ fn main() -> std::process::ExitCode {
         }
     };
     let mut command = std::process::Command::new("chrono-harness");
-    if query == Some("cost-inputs-v1") {
+    if matches!(op, Operation::Prepare) {
         if arguments.len() != 1 {
             eprintln!("E_USAGE: cost-inputs-v1 reads one query from stdin");
             return 2.into();
