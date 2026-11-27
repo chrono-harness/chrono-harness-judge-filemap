@@ -22,7 +22,7 @@ FILEMAP 的端点查询、调度和收集从 PATH 调用固定发行的 `chrono-
 
 完整调度重新打开 Git 读取器时，FILEMAP 将已观察的继承环境传给 registration。未设置的变量和配置排除的凭据保持缺席。配置中的字面值由读取器从各端点的配置解析。
 
-`chrono-judge-filemap cost-inputs-v1` 为成本判官准备数据。它接收已封存的判官请求，从 registration 的 `filemap-views` 读取两端按原顺序保存的文件和节点，核对前置 FILEMAP 结果和完整 DELTA，返回受影响节点、测试、绑定与原始 Git 观察。
+`chrono-judge-filemap cost-inputs-v1` 为成本判官准备数据。它接收已封存的判官请求，从 registration 的 `filemap-views` 读取两端按原顺序保存的文件和节点，核对前置 FILEMAP 结果和完整 DELTA。它至少需要一份匹配的前置影响，其他返回影响的前置项也要逐一相同；任一层的重复登记回复字段都会导致错误。JSON 字段读取和完整值相等由 serde 适配器提供，两份 Verus 根验证其上的前置结果选择。成功后返回受影响节点、测试、绑定与原始 Git 观察。
 
 本仓的产品和测试通过 crates.io 依赖独立构建。原生判官和 `cost-inputs-v1` 从宿主 PATH 选择已安装的 runner，使用其封存请求、限额和原生响应入口。固定提交的 Git 读取在一次 `git-facts-v1` 会话内完成，registration 和 mixed 通过 `run-command-v1` 在宿主指定的时间、输出上限和可执行文件摘要下运行。调用结束时关闭读取会话并收取实际退出状态。独立使用 `impact-summary`、`closure-v1` 和 `--version` 只需 FILEMAP 自身。
 

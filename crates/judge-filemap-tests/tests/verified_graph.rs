@@ -82,6 +82,176 @@ mod compiler_inputs {
     }
 }
 
+#[cfg(all(test, not(verus_keep_ghost)))]
+mod support;
+#[cfg(all(test, not(verus_keep_ghost)))]
+#[path = "support/classification.rs"]
+mod support_classification;
+
+#[cfg(all(test, not(verus_keep_ghost)))]
+#[test]
+fn cost_preparation_binds_prior_impacts_and_registration_reply() {
+    use serde_json::json;
+    use std::{collections::BTreeMap, fs};
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let bin = root.join("bin");
+    fs::create_dir(&bin).unwrap();
+    let runner = std::path::Path::new(env!("CARGO_BIN_EXE_chrono-test-filemap-runner"));
+    std::os::unix::fs::symlink(runner, bin.join("chrono-harness")).unwrap();
+    std::os::unix::fs::symlink(
+        env!("CARGO_BIN_EXE_chrono-test-registration"),
+        bin.join("chrono-judge-registration"),
+    )
+    .unwrap();
+    let (impact, _) = chrono_judge_filemap::produce(
+        &support::views("standard", "standard"),
+        &[support::delta("src.bin")],
+        support_classification::reply(&["src.bin"]),
+    );
+    let impact = serde_json::to_value(impact).unwrap();
+    let matched = json!({"outputs":{"impact":impact}});
+    let absent = json!({"outputs":{}});
+    let mut changed = matched.clone();
+    changed["outputs"]["impact"]["limits"] = json!(["different"]);
+    let replies: BTreeMap<String, String> =
+        serde_json::from_str(include_str!("fixtures/cost-registration-replies.json")).unwrap();
+    let endpoint = json!({"commit":"b".repeat(40),"tree":"c".repeat(40),"root":root});
+    let prepare = |prior: serde_json::Value, delta: &serde_json::Value, reply: &str| {
+        let request = json!({
+            "request_id":"cost-check","base":endpoint,"candidate":endpoint,"delta":delta,
+            "impact":impact,"prior_results":prior,"registries":{"digest":"registry"},"context":{"sha256":"context"},
+            "observations":{"environment":{"effective":{"PATH":bin}}}
+        });
+        fs::write(
+            root.join("cost-request"),
+            serde_json::to_vec(&request).unwrap(),
+        )
+        .unwrap();
+        fs::write(root.join("cost-reply"), &replies[reply]).unwrap();
+        let query = json!({"request": request, "protocol":{"timeout_seconds":30,"stdout_limit_bytes":100000}});
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+        let mut child = Command::new(runner.with_file_name("chrono-judge-filemap"))
+            .arg("cost-data-v1")
+            .env("PATH", &bin)
+            .current_dir(root)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(&serde_json::to_vec(&query).unwrap())
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(out.status.success() && out.stderr.is_empty(), "{:?}", out);
+        serde_json::from_slice::<serde_json::Value>(&out.stdout).unwrap()
+    };
+    for prior in [json!([matched]), json!([absent, matched, matched, absent])] {
+        let out = prepare(prior, &impact["delta"], "complete");
+        assert_eq!(out["request_id"], "cost-check");
+        assert_eq!(out["result"]["Ok"]["base"]["nodes"], json!(["before"]));
+        assert_eq!(out["result"]["Ok"]["candidate"]["nodes"], json!(["after"]));
+        assert_eq!(out["result"]["Ok"]["impact"]["delta"], impact["delta"]);
+        assert_eq!(out["outputs"]["git_facts"]["generation"], json!(u64::MAX));
+    }
+    let binding_error = "E_IMPACT: missing or conflicting bound FILEMAP output";
+    for prior in [
+        json!([]),
+        json!([absent]),
+        json!([changed, matched]),
+        json!([matched, changed, matched]),
+        json!([matched, changed]),
+    ] {
+        assert_eq!(
+            prepare(prior, &impact["delta"], "complete")["result"]["Err"],
+            binding_error
+        );
+    }
+    assert_eq!(
+        prepare(json!([matched]), &json!([]), "complete")["result"]["Err"],
+        binding_error
+    );
+    let response = |case| prepare(json!([matched]), &impact["delta"], case);
+    assert_eq!(
+        response("wrong")["result"]["Err"],
+        "E_PROTOCOL: registration query identity"
+    );
+    let error = response("error");
+    assert_eq!(error["result"]["Err"], "registration rejected");
+    assert_eq!(error["outputs"]["git_facts"]["observed"], true);
+    for (case, key) in [
+        ("identity", "request_id"),
+        ("diagnostic", "error"),
+        ("nested", "cost"),
+    ] {
+        let out = response(case);
+        assert!(
+            out["result"]["Err"]
+                .as_str()
+                .is_some_and(|reason| reason.contains(&format!("duplicate JSON member {key}"))),
+            "{case}: {out}"
+        );
+        assert_eq!(out["outputs"], json!({}));
+    }
+}
+
+#[cfg(verus_keep_ghost)]
+#[path = "support/registration.rs"]
+mod registration_fixture;
+
+#[cfg(verus_keep_ghost)]
+mod cost_binding {
+    use super::policy::cost_inputs::{PriorImpact, prior_impacts_match};
+    use vstd::prelude::*;
+
+    verus! {
+    pub struct Row(pub Option<u8>);
+    impl PriorImpact for Row {
+        open spec fn comparison(&self, expected: &Self) -> Option<bool> {
+            match self.0 { Some(value) => Some(expected.0 == Some(value)), None => None }
+        }
+
+        fn compare_impact(&self, expected: &Self) -> (result: Option<bool>) {
+            match self.0 { Some(value) => Some(expected.0 == Some(value)), None => None }
+        }
+    }
+
+    fn only_agreeing_producers_bind_the_cost_input() {
+        let expected = Row(Some(2));
+        let none: [Row; 0] = [];
+        let unrelated = [Row(None), Row(None)];
+        let matches = [Row(None), Row(Some(2)), Row(Some(2)), Row(None)];
+        let first = [Row(Some(3)), Row(Some(2))];
+        let middle = [Row(Some(2)), Row(Some(3)), Row(Some(2))];
+        let last = [Row(Some(2)), Row(Some(3))];
+        let a = prior_impacts_match(&none, &expected);
+        let b = prior_impacts_match(&unrelated, &expected);
+        let c = prior_impacts_match(&matches, &expected);
+        let d = prior_impacts_match(&first, &expected);
+        let e = prior_impacts_match(&middle, &expected);
+        let f = prior_impacts_match(&last, &expected);
+        assert forall |i:int| 0 <= i < unrelated.len() implies
+            (#[trigger] unrelated@[i].comparison(&expected)) == None::<bool> by {
+            if i == 0 { assert(unrelated@[0].0 == None::<u8>); } else { assert(i == 1); }
+        }
+        assert(matches@[1].comparison(&expected) == Some(true));
+        assert forall |i:int| 0 <= i < matches.len() implies
+            (#[trigger] matches@[i].comparison(&expected)) != Some(false) by {
+            if i == 0 {} else if i == 1 {} else if i == 2 {} else { assert(i == 3); }
+        }
+        assert(first@[0].comparison(&expected) == Some(false));
+        assert(middle@[1].comparison(&expected) == Some(false));
+        assert(last@[1].comparison(&expected) == Some(false));
+        assert(!a && !b && c && !d && !e && !f);
+    }
+    }
+}
+
 mod release_observation {
     #[cfg(not(verus_keep_ghost))]
     use verus_builtin_macros::verus;

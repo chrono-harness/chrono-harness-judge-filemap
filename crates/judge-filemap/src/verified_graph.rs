@@ -18,6 +18,12 @@ pub use crate::runtime::complete_frame;
 #[cfg(verus_keep_ghost)]
 pub use runtime::complete_frame;
 
+#[cfg(verus_keep_ghost)]
+#[path = "cost_inputs.rs"]
+pub mod cost_inputs;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::cost_inputs;
+
 #[path = "registration_trace.rs"]
 pub mod registration_trace;
 

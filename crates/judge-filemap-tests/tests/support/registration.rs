@@ -1,12 +1,56 @@
 //! Registration process replacement for the two immutable endpoints in the FILEMAP CLI test.
+#![allow(unexpected_cfgs)]
+#[cfg(not(verus_keep_ghost))]
+use vstd::prelude::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::{prelude::*, string::StringSliceAdditionalSpecFns};
+
+verus! {
+pub enum RequestKind { Cost, Impact, Invalid }
+
+pub fn request_kind(count: usize, operation: &str) -> (kind: RequestKind)
+    ensures match kind {
+        RequestKind::Cost => count == 1 && operation@ == "filemap-views"@,
+        RequestKind::Impact => count == 1 && operation@ == "impact-views-v1"@,
+        RequestKind::Invalid => count != 1 || (operation@ != "filemap-views"@ && operation@ != "impact-views-v1"@),
+    },
+{
+    use vstd::contrib::exec_spec::ExecSpecEq;
+    if count != 1 { RequestKind::Invalid }
+    else if <&str>::exec_eq(operation, "filemap-views") { RequestKind::Cost }
+    else if <&str>::exec_eq(operation, "impact-views-v1") { RequestKind::Impact }
+    else { RequestKind::Invalid }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::io::Write;
 
+#[cfg(not(verus_keep_ghost))]
 fn main() {
-    assert_eq!(
-        std::env::args().skip(1).collect::<Vec<_>>(),
-        ["impact-views-v1"]
-    );
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let operation = args.first().map(String::as_str).unwrap_or_default();
+    match request_kind(args.len(), operation) {
+        RequestKind::Cost => cost_reply(),
+        RequestKind::Impact => impact_reply(),
+        RequestKind::Invalid => panic!("unexpected registration arguments: {args:?}"),
+    }
+}
+
+#[cfg(not(verus_keep_ghost))]
+fn cost_reply() {
+    let input: Value = serde_json::from_reader(std::io::stdin().lock()).unwrap();
+    let expected: Value = serde_json::from_slice(&std::fs::read("cost-request").unwrap()).unwrap();
+    assert_eq!(input, expected);
+    std::io::stdout()
+        .write_all(&std::fs::read("cost-reply").unwrap())
+        .unwrap();
+}
+
+#[cfg(not(verus_keep_ghost))]
+fn impact_reply() {
     let input: Value = serde_json::from_reader(std::io::stdin().lock()).unwrap();
     let op = &input["operation"];
     assert_eq!(op["mode"], "endpoints");
