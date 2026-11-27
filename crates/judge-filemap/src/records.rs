@@ -1,33 +1,60 @@
 //! Stable registration record identities and set normalization, owned by FILEMAP impact.
+#[cfg(not(verus_keep_ghost))]
+use vstd::prelude::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+pub enum FieldDifference { Equal, Members, Leaf }
+/// Only differing pairs of objects are descended. Arrays, type changes and additions remain atomic.
+pub fn field_difference(equal: bool, both_objects: bool) -> (kind: FieldDifference)
+    ensures kind == if equal { FieldDifference::Equal }
+        else if both_objects { FieldDifference::Members } else { FieldDifference::Leaf },
+{
+    if equal { FieldDifference::Equal }
+    else if both_objects { FieldDifference::Members }
+    else { FieldDifference::Leaf }
+}
+}
+#[cfg(not(verus_keep_ghost))]
 use crate::registration::{Endpoint, NodeKind, NodeView};
+#[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize};
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg(not(verus_keep_ghost))]
 pub struct Record {
     pub path: String,
     pub targets: BTreeSet<String>,
     pub value: Value,
 }
 /// Keep the input location only while producing findings.
+#[cfg(not(verus_keep_ghost))]
 pub(crate) struct InputRecord {
     pub record: Record,
     pub pointer: String,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg(not(verus_keep_ghost))]
 pub struct RecordPair {
     pub base: Option<Record>,
     pub candidate: Option<Record>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg(not(verus_keep_ghost))]
 pub struct Change {
     pub record: String,
     pub fields: Vec<String>,
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn escape(s: &str) -> String {
     s.replace('~', "~0").replace('/', "~1")
 }
+#[cfg(not(verus_keep_ghost))]
 fn plan_targets(
     test: &str,
     plan: Option<&Value>,
@@ -57,6 +84,7 @@ fn plan_targets(
     targets
 }
 /// Argument vectors, plan sequences and launch priorities preserve semantic order.
+#[cfg(not(verus_keep_ghost))]
 fn normalize(v: &Value, key: &str) -> Value {
     match v {
         Value::Array(a) => {
@@ -74,6 +102,7 @@ fn normalize(v: &Value, key: &str) -> Value {
         _ => v.clone(),
     }
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn inventory(
     r: &Endpoint,
     nodes: &BTreeMap<String, NodeView>,
@@ -159,28 +188,25 @@ pub fn inventory(
                                 targets.insert(node);
                             }
                         }
-                    }
-                    if scope == "config"
-                        && key == "artifacts"
-                        && let Some(policy) = r.filemap().get("execution_scheduling")
-                    {
-                        for (operation, claims) in policy["claims"].as_object().unwrap() {
-                            if claims["outputs"]
-                                .as_array()
-                                .unwrap()
-                                .iter()
-                                .any(|p| p == &row["path"])
-                            {
-                                for (test, plan) in
-                                    r.filemap()["execution_plans"].as_object().unwrap()
+                        if let Some(policy) = r.filemap().get("execution_scheduling") {
+                            for (operation, claims) in policy["claims"].as_object().unwrap() {
+                                if claims["outputs"]
+                                    .as_array()
+                                    .unwrap()
+                                    .iter()
+                                    .any(|p| p == &row["path"])
                                 {
-                                    if plan["operations"]
-                                        .as_array()
-                                        .unwrap()
-                                        .iter()
-                                        .any(|o| o == operation)
+                                    for (test, plan) in
+                                        r.filemap()["execution_plans"].as_object().unwrap()
                                     {
-                                        targets.extend(plan_targets(test, Some(plan), nodes));
+                                        if plan["operations"]
+                                            .as_array()
+                                            .unwrap()
+                                            .iter()
+                                            .any(|o| o == operation)
+                                        {
+                                            targets.extend(plan_targets(test, Some(plan), nodes));
+                                        }
                                     }
                                 }
                             }
@@ -414,15 +440,19 @@ pub fn inventory(
     }
     out
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn changed_fields(a: Option<&Value>, b: Option<&Value>, prefix: &str, out: &mut Vec<String>) {
-    if a == b {
-        return;
-    }
-    if let (Some(Value::Object(a)), Some(Value::Object(b))) = (a, b) {
-        for k in a.keys().chain(b.keys()).collect::<BTreeSet<_>>() {
-            changed_fields(a.get(k), b.get(k), &format!("{prefix}/{}", escape(k)), out);
+    let objects = a
+        .and_then(Value::as_object)
+        .zip(b.and_then(Value::as_object));
+    match field_difference(a == b, objects.is_some()) {
+        FieldDifference::Equal => {}
+        FieldDifference::Leaf => out.push(prefix.into()),
+        FieldDifference::Members => {
+            let (a, b) = objects.unwrap();
+            for k in a.keys().chain(b.keys()).collect::<BTreeSet<_>>() {
+                changed_fields(a.get(k), b.get(k), &format!("{prefix}/{}", escape(k)), out);
+            }
         }
-    } else {
-        out.push(prefix.into());
     }
 }

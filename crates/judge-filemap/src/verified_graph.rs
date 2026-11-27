@@ -11,6 +11,37 @@ use vstd::prelude::*;
 use vstd::string::StringSliceAdditionalSpecFns;
 
 #[cfg(verus_keep_ghost)]
+#[path = "main.rs"]
+pub mod adapter_cli;
+#[cfg(verus_keep_ghost)]
+#[path = "records.rs"]
+pub mod adapter_fields;
+#[cfg(verus_keep_ghost)]
+#[path = "strict_json.rs"]
+pub mod adapter_json;
+#[cfg(verus_keep_ghost)]
+#[path = "lib.rs"]
+pub mod adapter_output;
+#[cfg(verus_keep_ghost)]
+#[path = "workflow.rs"]
+pub mod adapter_workflow;
+#[cfg(verus_keep_ghost)]
+pub use self::{
+    adapter_fields::{FieldDifference, field_difference},
+    adapter_json::diagnostic,
+    adapter_output::{evaluated_status, required_names},
+    adapter_workflow::{RequirementEdges, first_requirement},
+};
+#[cfg(not(verus_keep_ghost))]
+pub use crate::{
+    evaluated_status,
+    records::{FieldDifference, field_difference},
+    required_names,
+    strict_json::diagnostic,
+    workflow::{RequirementEdges, first_requirement},
+};
+
+#[cfg(verus_keep_ghost)]
 #[path = "runtime.rs"]
 mod runtime;
 #[cfg(not(verus_keep_ghost))]
