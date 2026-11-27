@@ -1,14 +1,43 @@
 //! Read the interpreted declarations that the installed registration judge owns.
+#[cfg(not(verus_keep_ghost))]
+use vstd::prelude::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+/// A provider error takes precedence over missing scheduling or environment evidence.
+pub enum ReplyFields { ProviderError, MissingFacts, EnvironmentConflict, Views }
+
+pub fn reply_fields(provider_error: bool, scheduling: bool, facts: bool,
+    bound: bool, environments: bool, environment_error: bool) -> (field: ReplyFields)
+    ensures field == if provider_error { ReplyFields::ProviderError }
+        else if scheduling && !facts { ReplyFields::MissingFacts }
+        else if bound && environments == environment_error { ReplyFields::EnvironmentConflict }
+        else { ReplyFields::Views },
+{
+    if provider_error { ReplyFields::ProviderError }
+    else if scheduling && !facts { ReplyFields::MissingFacts }
+    else if bound && environments == environment_error { ReplyFields::EnvironmentConflict }
+    else { ReplyFields::Views }
+}
+}
+#[cfg(not(verus_keep_ghost))]
 use crate::NodeDefinition;
+#[cfg(not(verus_keep_ghost))]
 use crate::runtime::{Program, Reader};
+#[cfg(not(verus_keep_ghost))]
 use crate::verified_graph::registration_environment;
+#[cfg(not(verus_keep_ghost))]
 use serde::Deserialize;
+#[cfg(not(verus_keep_ghost))]
 use serde_json::Value;
+#[cfg(not(verus_keep_ghost))]
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::Path,
 };
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum NodeKind {
@@ -22,12 +51,14 @@ pub enum NodeKind {
     Environment,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 pub struct NodeView {
     pub kind: NodeKind,
     pub definitions: Vec<NodeDefinition>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 pub struct Endpoint {
     pub config: Value,
@@ -42,6 +73,7 @@ pub struct Endpoint {
     pub claim_conflicts: BTreeMap<String, BTreeSet<String>>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl Endpoint {
     pub(crate) fn config(&self) -> &Value {
         &self.config
@@ -66,6 +98,7 @@ impl Endpoint {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 pub struct Views {
     pub base: Endpoint,
@@ -76,12 +109,14 @@ pub struct Views {
     pub environment_error: Option<String>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) struct Reply {
     pub views: Result<Views, String>,
     pub git_facts: Option<Value>,
     pub position: usize,
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn read(
     root: &Path,
     reader: &mut Reader,
@@ -114,27 +149,33 @@ pub(crate) fn read(
     let output = program.run(root, "impact-views-v1", &env, &limits, &query)?;
     let mut value: Value = crate::strict_json::parse(&output)?;
     if value["commits"] != serde_json::json!(commits)
-        || value.get("request_id") != request_id.map(serde_json::Value::from).as_ref()
+        || !crate::request::request_id_matches(
+            request_id,
+            value.get("request_id").map(Value::as_str),
+        )
     {
         return Err("E_PROTOCOL: registration impact query identity".into());
     }
     let git_facts = value
         .as_object_mut()
         .and_then(|object| object.remove("git_facts"));
-    let views = match value.get("error") {
-        Some(error) => Err(error
+    let views = match reply_fields(
+        value.get("error").is_some(),
+        scheduling,
+        git_facts.is_some(),
+        request_id.is_some(),
+        value.get("environments").is_some(),
+        value.get("environment_error").is_some(),
+    ) {
+        ReplyFields::ProviderError => Err(value["error"]
             .as_str()
             .ok_or("invalid registration error")?
             .to_owned()),
-        None if scheduling && git_facts.is_none() => {
-            Err("missing registration scheduling Git facts".into())
-        }
-        None if request_id.is_some()
-            && value.get("environments").is_some() == value.get("environment_error").is_some() =>
-        {
+        ReplyFields::MissingFacts => Err("missing registration scheduling Git facts".into()),
+        ReplyFields::EnvironmentConflict => {
             Err("missing or conflicting registration environment result".into())
         }
-        None => serde_json::from_value(value)
+        ReplyFields::Views => serde_json::from_value(value)
             .map_err(|e| format!("invalid registration impact view: {e}")),
     };
     Ok(Reply {
@@ -144,9 +185,11 @@ pub(crate) fn read(
     })
 }
 
+#[cfg(not(verus_keep_ghost))]
 type Facts =
     crate::verified_graph::registration_trace::Reader<Value, serde_json::Map<String, Value>>;
 
+#[cfg(not(verus_keep_ghost))]
 fn reader(value: Value) -> Facts {
     match value {
         Value::Null => Facts::Null,
@@ -155,6 +198,7 @@ fn reader(value: Value) -> Facts {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn processes(value: Value) -> Option<Vec<Value>> {
     match value {
         Value::Array(rows) => Some(rows),
@@ -162,6 +206,7 @@ fn processes(value: Value) -> Option<Vec<Value>> {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl crate::verified_graph::registration_trace::MergeError {
     fn diagnostic(self) -> String {
         use crate::verified_graph::registration_trace::MergeError::*;
@@ -180,6 +225,7 @@ impl crate::verified_graph::registration_trace::MergeError {
 }
 
 /// Insert the query's processes at the point it ran. Keep a single binding and original process order.
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn with_registration_facts(
     local: Value,
     at: usize,

@@ -24,6 +24,23 @@ pub mod cost_inputs;
 #[cfg(not(verus_keep_ghost))]
 pub use crate::cost_inputs;
 
+#[cfg(verus_keep_ghost)]
+#[path = "registration.rs"]
+mod registration;
+#[cfg(verus_keep_ghost)]
+#[path = "request.rs"]
+mod request;
+#[cfg(verus_keep_ghost)]
+pub use self::{
+    registration::{ReplyFields, reply_fields},
+    request::request_id_matches,
+};
+#[cfg(not(verus_keep_ghost))]
+pub use crate::{
+    registration::{ReplyFields, reply_fields},
+    request::request_id_matches,
+};
+
 #[path = "registration_trace.rs"]
 pub mod registration_trace;
 

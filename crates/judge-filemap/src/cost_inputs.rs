@@ -76,7 +76,10 @@ mod native {
         )?;
         let mut reply = crate::strict_json::parse(&bytes)
             .map_err(|e| format!("invalid registration filemap views: {e}"))?;
-        if reply["request_id"] != req.request_id {
+        if !crate::request::request_id_matches(
+            Some(&req.request_id),
+            reply.get("request_id").map(Value::as_str),
+        ) {
             return Err("E_PROTOCOL: registration query identity".into());
         }
         if let Some(facts) = reply

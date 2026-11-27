@@ -485,6 +485,23 @@ broadcast use vstd::string::group_string_axioms;
 
 use policy::EndpointRole::*;
 
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn registration_reply_identity_and_field_precedence_match_the_request() {
+    use policy::{request_id_matches, reply_fields, ReplyFields};
+    proof { reveal_strlit("A"); reveal_strlit("B"); vstd::string::is_ascii_spec_bytes("A"); vstd::string::is_ascii_spec_bytes("B"); assert("A".spec_bytes()[0] != "B".spec_bytes()[0]); }
+    if !request_id_matches(None,None) || request_id_matches(None,Some(None))
+        || request_id_matches(Some("A"),None) || request_id_matches(Some("A"),Some(None))
+        || !request_id_matches(Some("A"),Some(Some("A")))
+        || request_id_matches(Some("A"),Some(Some("B"))) { panic!(); }
+    if !matches!(reply_fields(true,true,false,true,true,true), ReplyFields::ProviderError)
+        || !matches!(reply_fields(false,true,false,true,true,true), ReplyFields::MissingFacts)
+        || !matches!(reply_fields(false,false,false,true,false,false), ReplyFields::EnvironmentConflict)
+        || !matches!(reply_fields(false,false,false,true,true,true), ReplyFields::EnvironmentConflict)
+        || !matches!(reply_fields(false,true,true,true,true,false), ReplyFields::Views)
+        || !matches!(reply_fields(false,true,true,true,false,true), ReplyFields::Views)
+        || !matches!(reply_fields(false,false,false,false,false,false), ReplyFields::Views) { panic!(); }
+}
+
 fn expect(actual: bool)
     requires actual,
 {
