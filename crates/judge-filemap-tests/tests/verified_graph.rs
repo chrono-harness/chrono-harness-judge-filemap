@@ -141,6 +141,80 @@ mod support_classification;
 
 #[cfg(all(test, not(verus_keep_ghost)))]
 #[test]
+fn cost_inventory_moves_only_the_explicitly_reassigned_test() {
+    use chrono_judge_filemap::produce;
+    let views = support::views("measured_cost", "new_cost");
+    let (impact, findings) = produce(&views, &[], support_classification::reply(&[]));
+    assert!(findings.is_empty(), "{findings:?}");
+    let old_model = &impact.records["/records/filemap/cost_models/unknown"];
+    let new_model = &impact.records["/records/filemap/cost_models/new"];
+    let before = &old_model.base.as_ref().unwrap().targets;
+    let after = &old_model.candidate.as_ref().unwrap().targets;
+    assert_eq!(before.len(), 13);
+    assert!(before.contains("file:src.bin"));
+    assert!(before.contains("test:t"));
+    assert_eq!(
+        before
+            .difference(after)
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["test:t"]
+    );
+    assert!(after.is_subset(before));
+    assert!(new_model.base.is_none());
+    assert_eq!(
+        new_model
+            .candidate
+            .as_ref()
+            .unwrap()
+            .targets
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["test:t"]
+    );
+}
+
+#[cfg(all(test, not(verus_keep_ghost)))]
+#[test]
+fn owner_inventory_moves_only_the_explicitly_reassigned_file() {
+    let (impact, findings) = produce(
+        &views("standard", "retarget"),
+        &[],
+        support_classification::reply(&[]),
+    );
+    assert!(findings.is_empty(), "{findings:?}");
+    use chrono_judge_filemap::produce;
+    use support::views;
+    let host = &impact.records["/records/projects/owners/host"];
+    let project = &impact.records["/records/projects/owners/p"];
+    let before = &host.base.as_ref().unwrap().targets;
+    let after = &host.candidate.as_ref().unwrap().targets;
+    assert_eq!(before.len(), 12);
+    assert_eq!(
+        before
+            .difference(after)
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["file:src.bin"]
+    );
+    assert!(after.is_subset(before));
+    assert!(project.base.as_ref().unwrap().targets.is_empty());
+    assert_eq!(
+        project
+            .candidate
+            .as_ref()
+            .unwrap()
+            .targets
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["file:src.bin"]
+    );
+}
+
+#[cfg(all(test, not(verus_keep_ghost)))]
+#[test]
 fn plan_record_changes_seed_direct_and_predecessor_owners_at_either_endpoint() {
     use chrono_judge_filemap::produce;
     use serde_json::json;
