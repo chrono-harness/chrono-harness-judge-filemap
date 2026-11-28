@@ -1,7 +1,8 @@
 //! Independent boundaries for the executable graph search and its contract.
 #![allow(unexpected_cfgs)]
-#[path = "../../../.chrono-harness/ci/roadmap.rs"]
-mod roadmap;
+#[rustfmt::skip]
+#[path = "../../../.chrono-harness/ci/host_adapters.rs"]
+mod host_adapters;
 
 #[cfg(verus_keep_ghost)]
 #[path = "../../judge-filemap/src/verified_graph.rs"]
