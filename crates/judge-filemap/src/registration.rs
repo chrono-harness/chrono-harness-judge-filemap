@@ -1,10 +1,38 @@
 //! Read the interpreted declarations that the installed registration judge owns.
+#[cfg(verus_keep_ghost)]
+use super::equal_text;
+#[cfg(not(verus_keep_ghost))]
+use crate::verified_graph::equal_text;
 #[cfg(not(verus_keep_ghost))]
 use vstd::prelude::verus;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 
 verus! {
+pub fn reply_commits_match(expected: [&str; 2], observed: Option<(&str, &str)>) -> (admitted: bool)
+    ensures admitted == (match observed {
+        Some((base, candidate)) => expected[0]@ == base@ && expected[1]@ == candidate@,
+        None => false,
+    }),
+{
+    match observed {
+        Some((base, candidate)) => equal_text(expected[0], base) && equal_text(expected[1], candidate),
+        None => false,
+    }
+}
+
+pub fn required_registration_view<T>(view: Option<T>) -> (result: Result<T, &'static str>)
+    ensures result == match view {
+        Some(view) => Ok(view),
+        None => Err("missing registration view"),
+    },
+{
+    match view {
+        Some(view) => Ok(view),
+        None => Err("missing registration view"),
+    }
+}
+
 /// A provider error takes precedence over missing scheduling or environment evidence.
 pub enum ReplyFields { ProviderError, MissingFacts, EnvironmentConflict, Views }
 
@@ -148,7 +176,13 @@ pub(crate) fn read(
     let program = Program::resolve(root, "chrono-judge-registration", search_path)?;
     let output = program.run(root, "impact-views-v1", &env, &limits, &query)?;
     let mut value: Value = crate::strict_json::parse(&output)?;
-    if value["commits"] != serde_json::json!(commits)
+    let observed = value["commits"]
+        .as_array()
+        .and_then(|pair| match pair.as_slice() {
+            [base, candidate] => Some((base.as_str()?, candidate.as_str()?)),
+            _ => None,
+        });
+    if !reply_commits_match(commits, observed)
         || !crate::request::request_id_matches(
             request_id,
             value.get("request_id").map(Value::as_str),

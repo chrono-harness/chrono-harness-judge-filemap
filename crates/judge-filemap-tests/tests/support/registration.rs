@@ -57,8 +57,14 @@ fn cost_reply() {
 fn impact_reply() {
     let input: Value = serde_json::from_reader(std::io::stdin().lock()).unwrap();
     let op = &input["operation"];
-    assert_eq!(op["mode"], "endpoints");
-    assert_eq!(op["scheduling"], false);
+    let commits = match op["mode"].as_str().unwrap() {
+        "endpoints" => json!([op["base"], op["candidate"]]),
+        "request" | "collection" => json!([
+            op["request"]["base"]["commit"],
+            op["request"]["candidate"]["commit"]
+        ]),
+        mode => panic!("unexpected registration mode {mode}"),
+    };
     let endpoint: Value =
         serde_json::from_str(include_str!("../fixtures/registration-standard.json")).unwrap();
     for documents in input["originals"].as_array().unwrap() {
@@ -70,11 +76,28 @@ fn impact_reply() {
             );
         }
     }
-    let mut reply = json!({"commits":[op["base"],op["candidate"]],"base":endpoint,"candidate":endpoint,"repaired":[]});
+    let mut reply = json!({"commits":commits,"base":endpoint,"candidate":endpoint,"repaired":[]});
+    if op["mode"] != "endpoints" {
+        reply["request_id"] = op["request"]["request_id"].clone();
+        reply["environments"] = json!([{}, {}]);
+    }
+    if op["mode"] == "request" {
+        reply["registration_view"] = json!({"registration":"fixture"});
+    }
+    if op["scheduling"] == true {
+        reply["git_facts"] = Value::Null;
+    }
     let mode = std::fs::read_to_string("registration-reply").unwrap_or_default();
     match mode.as_str() {
         "" => {}
         "wrong-identity" => reply["commits"][0] = json!("0".repeat(40)),
+        "wrong-candidate" => reply["commits"][1] = json!("0".repeat(40)),
+        "wrong-request" => reply["request_id"] = json!("other-request"),
+        "missing-view" => {
+            reply.as_object_mut().unwrap().remove("registration_view");
+        }
+        "semantic-error" => reply["error"] = json!("E_SEMANTIC_SOURCE: evidence rejected"),
+        "other-error" => reply["error"] = json!("E_OTHER: evidence rejected"),
         "incomplete" => {
             reply["candidate"].as_object_mut().unwrap().remove("nodes");
         }

@@ -16,6 +16,8 @@
 
 完整 CI 调度调用 `endpoint-tests` 时可传 `"scheduling":true`。FILEMAP 按调度规则解释两个端点，并额外返回 `reached`、`changed_paths` 与自己的 `git_facts`。`collection-tests-v1` 在宿主根目录接收 `request` 和可选的 `migration`。前者是绑定当前检出与 collect 范围的请求，后者包含登记要求的 `units` 和原始 `originals` 清单。收集时验证有效输入，返回 `tests`、`retired_tests`、`findings`、`reached` 与 `git_facts`。调用方须处理 error 级 findings。两种查询均从 stdin 读取 JSON，成功退出 0，失败退出 2 并向 stderr 写原因。
 
+正式评估与离线收集都先核对基线树、候选树和完整的有序 DELTA。登记回复必须保留两个原提交及适用的请求 ID。正式评估还需要登记视图。在评估、Git 观察或关闭同时失败时，正式判官按观察、关闭、评估的顺序返回首项错误，并保留已经取得的 Git 记录。错误首字段以 `E_SEMANTIC_` 开头时沿用该错误码，其余评估错误使用 `E_INPUT`。
+
 FILEMAP 的端点查询、调度和收集从 PATH 调用固定发行的 `chrono-judge-registration impact-views-v1`。FILEMAP 在两个提交上取得登记原文，登记工具按公开协议返回节点定义、测试归属和解释后的登记。FILEMAP 据此计算闭包和测试选择。只查询 `impact-summary` 或 `closure-v1` 时可单独使用 FILEMAP。
 
 测试从 `tests/fixtures/registration-standard.json` 读取公开响应的端点样例，`registration-variants.json` 按命名场景用 JSON Patch 保存相对改动。两份文件位于 `crates/judge-filemap-tests/` 下，供影响分析与命令边界测试离线使用。

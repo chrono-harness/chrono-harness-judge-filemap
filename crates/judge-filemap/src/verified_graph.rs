@@ -63,13 +63,13 @@ mod registration;
 mod request;
 #[cfg(verus_keep_ghost)]
 pub use self::{
-    registration::{ReplyFields, reply_fields},
-    request::request_id_matches,
+    registration::{ReplyFields, reply_commits_match, reply_fields, required_registration_view},
+    request::{collection_request_matches, evaluation_code, finish_evaluation, request_id_matches},
 };
 #[cfg(not(verus_keep_ghost))]
 pub use crate::{
-    registration::{ReplyFields, reply_fields},
-    request::request_id_matches,
+    registration::{ReplyFields, reply_commits_match, reply_fields, required_registration_view},
+    request::{collection_request_matches, evaluation_code, finish_evaluation, request_id_matches},
 };
 
 #[path = "registration_trace.rs"]
@@ -2288,6 +2288,94 @@ pub struct Delta {
     pub new_blob: Option<String>,
     pub old_mode: Option<String>,
     pub new_mode: Option<String>,
+}
+
+pub fn admit_tree(expected: &str, observed: &str) -> (result: Result<(), &'static str>)
+    ensures result == if expected@ == observed@ { Ok(()) } else { Err("fixed endpoint tree mismatch") },
+{
+    if equal_text(expected, observed) { Ok(()) } else { Err("fixed endpoint tree mismatch") }
+}
+
+pub open spec fn delta_text(value: Option<String>) -> Option<Seq<char>> {
+    match value { Some(text) => Some(text@), None => None }
+}
+
+fn delta_member_matches(expected: &Option<String>, observed: &Option<String>) -> (same: bool)
+    ensures same == (delta_text(*expected) == delta_text(*observed)),
+{
+    match (expected, observed) {
+        (None, None) => true,
+        (Some(a), Some(b)) => equal_text(a.as_str(), b.as_str()),
+        _ => false,
+    }
+}
+
+impl Delta {
+    pub open spec fn evidence(&self) -> (Seq<char>, Seq<char>, Option<Seq<char>>, Option<Seq<char>>, Option<Seq<char>>, Option<Seq<char>>) {
+        (self.kind@, self.path@, delta_text(self.old_blob), delta_text(self.new_blob),
+            delta_text(self.old_mode), delta_text(self.new_mode))
+    }
+
+    fn evidence_matches(&self, observed: &Self) -> (same: bool)
+        ensures same == (self.evidence() == observed.evidence()),
+    {
+        equal_text(self.kind.as_str(), observed.kind.as_str())
+            && equal_text(self.path.as_str(), observed.path.as_str())
+            && delta_member_matches(&self.old_blob, &observed.old_blob)
+            && delta_member_matches(&self.new_blob, &observed.new_blob)
+            && delta_member_matches(&self.old_mode, &observed.old_mode)
+            && delta_member_matches(&self.new_mode, &observed.new_mode)
+    }
+}
+
+pub fn admit_delta(expected: &[Delta], observed: &[Delta]) -> (result: Result<(), &'static str>)
+    ensures result == if expected@.map_values(|row: Delta| row.evidence())
+            == observed@.map_values(|row: Delta| row.evidence()) {
+        Ok(())
+    } else { Err("DELTA differs from fixed endpoints") },
+{
+    let ghost expected_rows = expected@.map_values(|row: Delta| row.evidence());
+    let ghost observed_rows = observed@.map_values(|row: Delta| row.evidence());
+    if expected.len() != observed.len() {
+        assert(expected_rows.len() != observed_rows.len());
+        assert(expected_rows != observed_rows);
+        return Err("DELTA differs from fixed endpoints");
+    }
+    for i in 0..expected.len()
+        invariant expected.len() == observed.len(),
+            expected_rows == expected@.map_values(|row: Delta| row.evidence()),
+            observed_rows == observed@.map_values(|row: Delta| row.evidence()),
+            forall|j: int| 0 <= j < i ==> #[trigger] expected@[j].evidence() == observed@[j].evidence(),
+    {
+        if !expected[i].evidence_matches(&observed[i]) {
+            assert(expected_rows[i as int] != observed_rows[i as int]);
+            assert(expected_rows != observed_rows);
+            return Err("DELTA differs from fixed endpoints");
+        }
+    }
+    assert(expected_rows =~= observed_rows);
+    Ok(())
+}
+
+pub fn scheduling_paths(scheduling: bool, delta: &[Delta]) -> (paths: Option<Vec<&str>>)
+    ensures match paths {
+        None => !scheduling,
+        Some(paths) => scheduling && paths.len() == delta.len()
+            && paths@.map_values(|path: &str| path@) == delta@.map_values(|row: Delta| row.path@),
+    },
+{
+    if !scheduling {
+        return None;
+    }
+    let mut paths: Vec<&str> = Vec::new();
+    for i in 0..delta.len()
+        invariant paths.len() == i,
+            forall|j: int| 0 <= j < i ==> #[trigger] paths@[j]@ == delta@[j].path@,
+    {
+        paths.push(delta[i].path.as_str());
+    }
+    assert(paths@.map_values(|path: &str| path@) =~= delta@.map_values(|row: Delta| row.path@));
+    Some(paths)
 }
 
 pub trait SeedEncoder {

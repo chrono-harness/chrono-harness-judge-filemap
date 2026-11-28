@@ -59,7 +59,8 @@ for module in "${proof_modules[@]}"; do
   product_inputs+=("$production/$module")
   test_inputs+=("$included/$module")
 done
-test_inputs+=("$independent/support/registration.rs" "$roadmap_inputs/../../.github/roadmap.cjs" "$roadmap_inputs/../../.github/workflows/issue-roadmap.yml"
+test_inputs+=("$independent/support/registration.rs" "$independent/support/runner.rs"
+  "$roadmap_inputs/../../.github/roadmap.cjs" "$roadmap_inputs/../../.github/workflows/issue-roadmap.yml"
   "$roadmap_inputs/../../.github/workflows/actions.lock" "$independent/../../../check.sh")
 chrono-host-bootstrap check-compiler-sources proof .chrono-harness/state/filemap-proofs/verify.filemap-graph.rlib \
   "${product_inputs[@]}" || coverage_failure "production graph proof has different compiler inputs"

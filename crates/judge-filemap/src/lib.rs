@@ -558,9 +558,9 @@ pub fn endpoint_tests(root: &std::path::Path, input: impl std::io::Read) -> Resu
     let (impact, findings) = produce(&views, &delta, changes);
     let mut result =
         json!({"tests":impact.tests,"retired_tests":impact.retired_tests,"findings":findings});
-    if query.scheduling {
+    if let Some(paths) = verified_graph::scheduling_paths(query.scheduling, &delta) {
         result["reached"] = json!(impact.closure.reached.keys().collect::<Vec<_>>());
-        result["changed_paths"] = json!(delta.iter().map(|item| &item.path).collect::<Vec<_>>());
+        result["changed_paths"] = json!(paths);
         result["git_facts"] = registration::with_registration_facts(
             reader.observation()?,
             reply.position,
@@ -586,12 +586,14 @@ pub fn collection_tests(
     }
     let query: Query = serde_json::from_reader(input).map_err(|e| e.to_string())?;
     let req = &Request::new(query.request)?;
-    if req.candidate.root != root
-        || req.scope.as_ref().and_then(|s| s["kind"].as_str()) != Some("collect")
-    {
+    if !request::collection_request_matches(
+        req.candidate.root == root,
+        req.scope.as_ref().and_then(|s| s["kind"].as_str()),
+    ) {
         return Err("FILEMAP collection requires this checkout and a collection scope".into());
     }
     let mut reader = runtime::Reader::open(root, json!({"mode":"request","request":req.raw}))?;
+    verify_request_endpoints(req, &mut reader)?;
     let reply = registration::read(
         root,
         &mut reader,
@@ -646,11 +648,13 @@ pub fn decision(input: impl std::io::Read) -> Result<Value, String> {
         let mut remote = None;
         let result = evaluate(&req, &mut reader, &mut remote);
         let (position, remote) = remote.unwrap_or_default();
-        let facts = registration::with_registration_facts(reader.observation()?, position, remote)?;
-        if !facts.is_null() {
+        let observation = reader
+            .observation()
+            .and_then(|local| registration::with_registration_facts(local, position, remote));
+        let (facts, result) = request::finish_evaluation(observation, reader.close(), result);
+        if let Some(facts) = facts.filter(|facts| !facts.is_null()) {
             outputs.insert("git_facts".into(), facts);
         }
-        reader.close()?;
         result
     })();
     let (status, findings) = match result {
@@ -664,12 +668,8 @@ pub fn decision(input: impl std::io::Read) -> Result<Value, String> {
             (status, findings)
         }
         Err(message) => {
-            let code = message
-                .split(':')
-                .next()
-                .filter(|code| code.starts_with("E_SEMANTIC_"))
-                .unwrap_or("E_INPUT")
-                .to_owned();
+            let code =
+                request::evaluation_code(message.split(':').next().unwrap_or_default()).to_owned();
             (
                 "error",
                 vec![Finding {
@@ -685,20 +685,21 @@ pub fn decision(input: impl std::io::Read) -> Result<Value, String> {
     Ok(json!({"status":status,"findings":findings,"outputs":outputs}))
 }
 #[cfg(not(verus_keep_ghost))]
+fn verify_request_endpoints(req: &Request, reader: &mut runtime::Reader) -> Result<(), String> {
+    verified_graph::admit_tree(&req.base.tree, &reader.verify_tree("base")?)?;
+    verified_graph::admit_tree(&req.candidate.tree, &reader.verify_tree("candidate")?)?;
+    verified_graph::admit_delta(&req.delta, &reader.delta()?)?;
+    Ok(())
+}
+
+#[cfg(not(verus_keep_ghost))]
 fn evaluate(
     req: &Request,
     reader: &mut runtime::Reader,
     remote_facts: &mut Option<(usize, Option<Value>)>,
 ) -> Result<(Impact, Vec<Finding>, Value), String> {
     let root = &req.candidate.root;
-    if reader.verify_tree("base")? != req.base.tree
-        || reader.verify_tree("candidate")? != req.candidate.tree
-    {
-        return Err("fixed endpoint tree mismatch".into());
-    }
-    if reader.delta()? != req.delta {
-        return Err("DELTA differs from fixed endpoints".into());
-    }
+    verify_request_endpoints(req, reader)?;
     let reply = registration::read(
         root,
         reader,
@@ -709,10 +710,7 @@ fn evaluate(
     )?;
     *remote_facts = Some((reply.position, reply.git_facts));
     let mut views = reply.views?;
-    let view = views
-        .registration_view
-        .take()
-        .ok_or("missing registration view")?;
+    let view = registration::required_registration_view(views.registration_view.take())?;
     let (impact, findings) = produce_for_request(req, &views, reader)?;
     Ok((impact, findings, view))
 }
