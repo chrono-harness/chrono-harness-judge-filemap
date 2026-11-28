@@ -5,6 +5,32 @@ use vstd::prelude::verus;
 use vstd::prelude::*;
 
 verus! {
+pub enum EdgeReference<T> {
+    File(T),
+    Workflow(usize),
+    Project,
+}
+
+pub fn edge_reference<T, R: RequirementEdges>(file: Option<T>, rows: &[R], edge: &R)
+    -> (out: EdgeReference<T>)
+    ensures match out {
+        EdgeReference::File(source) => file == Some(source),
+        EdgeReference::Workflow(i) => file.is_none() && i < rows.len()
+            && rows@[i as int].contains(edge)
+            && forall|j: int| 0 <= j < i ==> !(#[trigger] rows@[j].contains(edge)),
+        EdgeReference::Project => file.is_none()
+            && forall|j: int| 0 <= j < rows.len() ==> !(#[trigger] rows@[j].contains(edge)),
+    },
+{
+    if let Some(source) = file {
+        return EdgeReference::File(source);
+    }
+    match first_requirement(rows, edge) {
+        Some(i) => EdgeReference::Workflow(i),
+        None => EdgeReference::Project,
+    }
+}
+
 pub trait RequirementEdges: Sized {
     spec fn contains(&self, edge: &Self) -> bool;
     fn contains_edge(&self, edge: &Self) -> (present: bool)
@@ -198,10 +224,20 @@ pub fn edges(selection: &Value, endpoint: &str) -> BTreeSet<Edge> {
         .collect()
 }
 #[cfg(not(verus_keep_ghost))]
-pub fn reference(selection: &Value, edge: &Edge) -> Option<String> {
-    let rows = selection["requirements"].as_array()?;
-    let edge = serde_json::to_value(edge).unwrap();
-    first_requirement(rows, &edge).map(|i| format!("/impact/workflow/requirements/{i}"))
+pub fn reference(selection: &Value, edge: &Edge, file: Option<String>) -> String {
+    let rows = selection["requirements"]
+        .as_array()
+        .map_or(&[][..], Vec::as_slice);
+    match edge_reference(file, rows, &serde_json::to_value(edge).unwrap()) {
+        EdgeReference::File(source) => source,
+        EdgeReference::Workflow(i) => format!("/impact/workflow/requirements/{i}"),
+        EdgeReference::Project => format!(
+            "/records/filemap/project_edges/{}",
+            crate::records::escape(
+                &serde_json::to_string(&json!([edge.from, edge.kind, edge.to])).unwrap()
+            )
+        ),
+    }
 }
 
 #[cfg(not(verus_keep_ghost))]

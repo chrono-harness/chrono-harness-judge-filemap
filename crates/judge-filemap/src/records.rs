@@ -32,6 +32,13 @@ pub struct Record {
     pub targets: BTreeSet<String>,
     pub value: Value,
 }
+#[cfg(not(verus_keep_ghost))]
+impl crate::verified_graph::RecordTargets for Record {
+    fn target_rows(&self) -> Vec<&String> {
+        self.targets.iter().collect()
+    }
+}
+
 /// Keep the input location only while producing findings.
 #[cfg(not(verus_keep_ghost))]
 pub(crate) struct InputRecord {
