@@ -18,6 +18,56 @@ use vstd::string::StringSliceAdditionalSpecFns;
 #[cfg(verus_keep_ghost)]
 use vstd::vpanic as panic;
 
+verus! {
+/// Two definitions, a repeated script action, a project action, a non-owner and a missed name.
+#[cfg(verus_keep_ghost)]
+fn plan_owner_boundaries() {
+    use policy::{EndpointRole::*, PlanAction, PlanOperation::*, name_members, plan_owner_names};
+    let ops = [Name("prepare"), Name("finish"), Name("finish")];
+    let actions = [
+        PlanAction { owner: "script:pre", role: Script, operation: Name("prepare") },
+        PlanAction { owner: "script:pre", role: Script, operation: Name("finish") },
+        PlanAction { owner: "project:run", role: Project, operation: Name("finish") },
+        PlanAction { owner: "test:ignored-alias", role: Test, operation: Name("finish") },
+        PlanAction { owner: "project:miss", role: Project, operation: Name("unplanned-name") },
+    ];
+    let direct = vec!["script:direct", "project:run"];
+    let names = plan_owner_names(direct, &actions, &ops);
+    proof {
+        broadcast use vstd::string::group_string_axioms;
+        reveal_strlit("prepare"); reveal_strlit("finish"); reveal_strlit("unplanned-name");
+        reveal_strlit("script:direct"); reveal_strlit("project:run"); reveal_strlit("script:pre");
+        reveal_strlit("test:ignored-alias"); reveal_strlit("project:miss");
+        assert("unplanned-name"@.len() != "prepare"@.len());
+        assert("unplanned-name"@.len() != "finish"@.len());
+        vstd::string::is_ascii_spec_bytes("script:direct");
+        vstd::string::is_ascii_spec_bytes("project:run");
+        vstd::string::is_ascii_spec_bytes("script:pre");
+        vstd::string::is_ascii_spec_bytes("test:ignored-alias");
+        vstd::string::is_ascii_spec_bytes("project:miss");
+        assert("test:ignored-alias".spec_bytes() != "script:direct".spec_bytes());
+        assert("project:miss".spec_bytes() != "script:direct".spec_bytes());
+        assert forall|i:int| 0 <= i < actions.len() &&
+            ((#[trigger] actions@[i]).owner.spec_bytes() == "test:ignored-alias".spec_bytes() ||
+            actions@[i].owner.spec_bytes() == "project:miss".spec_bytes()) implies
+            (actions@[i].role == Test || forall|j:int| 0 <= j < ops.len() ==>
+                !policy::same_operation(actions@[i].operation, ops@[j])) by {
+            if i == 4 {
+                assert forall|j:int| 0 <= j < ops.len() implies !policy::same_operation(actions@[i].operation, ops@[j]) by {
+                    if j == 0 {} else if j == 1 {} else {}
+                }
+            } else if i == 0 {} else if i == 1 {} else if i == 2 {}
+        }
+        let owners = name_members(names@);
+        assert(owners.contains("script:direct".spec_bytes()));
+        assert(owners.contains("script:pre".spec_bytes()));
+        assert(owners.contains("project:run".spec_bytes()));
+        assert(!owners.contains("test:ignored-alias".spec_bytes()));
+        assert(!owners.contains("project:miss".spec_bytes()));
+    }
+}
+}
+
 // Cargo builds this same release obligation as an executable for the publishing workflow.
 mod compiler_inputs {
     #[cfg(not(verus_keep_ghost))]
@@ -88,6 +138,47 @@ mod support;
 #[cfg(all(test, not(verus_keep_ghost)))]
 #[path = "support/classification.rs"]
 mod support_classification;
+
+#[cfg(all(test, not(verus_keep_ghost)))]
+#[test]
+fn plan_record_changes_seed_direct_and_predecessor_owners_at_either_endpoint() {
+    use chrono_judge_filemap::produce;
+    use serde_json::json;
+    use std::collections::BTreeSet;
+    use support::views;
+    let record = "/records/filemap/execution_plans/test:t";
+    let direct = BTreeSet::from(["project:t".to_owned()]);
+    let both = BTreeSet::from(["project:p".to_owned(), "project:t".to_owned()]);
+    for adding in [true, false] {
+        let mut registered = views("plan", "plan");
+        let changed = if adding {
+            &mut registered.candidate
+        } else {
+            &mut registered.base
+        };
+        changed.filemap["execution_plans"]["test:t"]["operations"] =
+            json!(["unused", "execute.p", "execute.p", "execute.t"]);
+        let (impact, findings) = produce(&registered, &[], support_classification::reply(&[]));
+        assert!(findings.is_empty(), "{findings:?}");
+        let pair = &impact.records[record];
+        assert_eq!(
+            &pair.base.as_ref().unwrap().targets,
+            if adding { &direct } else { &both }
+        );
+        assert_eq!(
+            &pair.candidate.as_ref().unwrap().targets,
+            if adding { &both } else { &direct }
+        );
+        let seeded: BTreeSet<_> = impact
+            .seed_causes
+            .iter()
+            .filter(|s| s.reference == record && s.reason == "record-change")
+            .map(|s| s.node.clone())
+            .collect();
+        assert_eq!(seeded, both);
+        assert_eq!(impact.tests, ["test:t"]);
+    }
+}
 
 #[cfg(all(test, not(verus_keep_ghost)))]
 #[test]

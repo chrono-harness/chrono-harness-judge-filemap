@@ -17,7 +17,9 @@ pub fn field_difference(equal: bool, both_objects: bool) -> (kind: FieldDifferen
 }
 }
 #[cfg(not(verus_keep_ghost))]
-use crate::registration::{Endpoint, NodeKind, NodeView};
+use crate::registration::{Endpoint, NodeView};
+#[cfg(not(verus_keep_ghost))]
+use crate::verified_graph::{PlanAction, PlanOperation, endpoint_role, plan_owner_names};
 #[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize};
 #[cfg(not(verus_keep_ghost))]
@@ -62,33 +64,59 @@ pub fn escape(s: &str) -> String {
     s.replace('~', "~0").replace('/', "~1")
 }
 #[cfg(not(verus_keep_ghost))]
+fn observed_operation<'a>(value: &'a Value, others: &mut Vec<&'a Value>) -> PlanOperation<'a> {
+    if let Some(name) = value.as_str() {
+        return PlanOperation::Name(name);
+    }
+    let index = others
+        .iter()
+        .position(|item| *item == value)
+        .unwrap_or_else(|| {
+            others.push(value);
+            others.len() - 1
+        });
+    PlanOperation::Other(index)
+}
+
+#[cfg(not(verus_keep_ghost))]
 fn plan_targets(
     test: &str,
     plan: Option<&Value>,
     nodes: &BTreeMap<String, NodeView>,
 ) -> BTreeSet<String> {
-    let mut targets = BTreeSet::new();
-    if let Some(view) = nodes.get(test) {
-        targets.extend(view.definitions.iter().map(|d| d.identity.clone()));
-    }
-    for operation in plan
+    let definitions = nodes
+        .get(test)
         .into_iter()
-        .flat_map(|p| p["operations"].as_array())
+        .flat_map(|node| &node.definitions)
+        .map(|definition| definition.identity.as_str())
+        .collect();
+    let mut others = Vec::new();
+    let operations: Vec<_> = plan
+        .and_then(|plan| plan["operations"].as_array())
+        .into_iter()
         .flatten()
-    {
-        for (node, view) in nodes {
-            if matches!(view.kind, NodeKind::Project | NodeKind::Script)
-                && view.definitions.iter().any(|d| {
-                    d.value["actions"]
-                        .as_object()
-                        .is_some_and(|a| a.values().any(|a| a["operation"] == *operation))
-                })
-            {
-                targets.insert(node.clone());
+        .map(|value| observed_operation(value, &mut others))
+        .collect();
+    let mut actions = Vec::new();
+    if !operations.is_empty() {
+        for (owner, node) in nodes {
+            for definition in &node.definitions {
+                if let Some(methods) = definition.value["actions"].as_object() {
+                    for method in methods.values() {
+                        actions.push(PlanAction {
+                            owner,
+                            role: endpoint_role(node.kind),
+                            operation: observed_operation(&method["operation"], &mut others),
+                        });
+                    }
+                }
             }
         }
     }
-    targets
+    plan_owner_names(definitions, &actions, &operations)
+        .into_iter()
+        .map(str::to_owned)
+        .collect()
 }
 /// Argument vectors, plan sequences and launch priorities preserve semantic order.
 #[cfg(not(verus_keep_ghost))]
