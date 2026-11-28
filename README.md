@@ -34,6 +34,8 @@ impact 从实际遍历原边一次生成 `required_tests`、`tests` 和 `retired
 
 变更文件、登记目标及有变化的边生成原因时，起点身份使用 JSON 的 `[reference, reason, node]`。Verus 核对实际传入编码器的字段顺序、所有 DELTA 文件及有变化边的两个端点。外部 JSON 字符串编码由 serde_json 提供，原生测试解码实际输出并核对含引号、反斜杠、换行及 Unicode 的身份。
 
+完整影响报告的 `records` 在每个端点按登记表和字段选择记录类型。Verus 核对成本模型和所有者的目标行、产物输出与计划操作的精确匹配，以及调度冲突关联和继承环境名称。两份现役 Verus 根编译实际的 `records.rs`。登记表和数组来自已解释的登记回复，serde_json 提供字符串、字段和行的观察，标准库负责最终的目标去重和排序。
+
 ## 本仓本地检查的清理
 
 开发者运行 `mise exec -- ./check.sh` 时，工作树租约覆盖整个检查。准备输入和原报告写入 `.chrono-harness/state/preparation/`，单元结果在 `.chrono-harness/state/filemap/`，汇总在 `.chrono-harness/state/collection/`。登记的准备动作先创建 `.chrono-harness/state/filemap-proofs/`。两组证明编译库及依赖清单写入此目录，原生检查随后按文件核验编译器输入。维护轮次在检查结束后回收此目录。原生构建使用专属的 `native-check/` 临时目录。需要保留的结果应在当日清理前复制到持久存储。

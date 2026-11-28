@@ -27,7 +27,10 @@ pub mod adapter_output;
 pub mod adapter_workflow;
 #[cfg(verus_keep_ghost)]
 pub use self::{
-    adapter_fields::{FieldDifference, field_difference},
+    adapter_fields::{
+        FieldDifference, InventoryRule, declares_name, field_difference, inventory_rule,
+        matches_declaration, matching_targets, plan_has_claim,
+    },
     adapter_json::diagnostic,
     adapter_output::{evaluated_status, required_names},
     adapter_workflow::{EdgeReference, RequirementEdges, edge_reference, first_requirement},
@@ -35,7 +38,10 @@ pub use self::{
 #[cfg(not(verus_keep_ghost))]
 pub use crate::{
     evaluated_status,
-    records::{FieldDifference, field_difference},
+    records::{
+        FieldDifference, InventoryRule, declares_name, field_difference, inventory_rule,
+        matches_declaration, matching_targets, plan_has_claim,
+    },
     required_names,
     strict_json::diagnostic,
     workflow::{EdgeReference, RequirementEdges, edge_reference, first_requirement},

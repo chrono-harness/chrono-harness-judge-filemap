@@ -141,6 +141,80 @@ mod support_classification;
 
 #[cfg(all(test, not(verus_keep_ghost)))]
 #[test]
+fn cost_inventory_moves_only_the_explicitly_reassigned_test() {
+    use chrono_judge_filemap::produce;
+    let views = support::views("measured_cost", "new_cost");
+    let (impact, findings) = produce(&views, &[], support_classification::reply(&[]));
+    assert!(findings.is_empty(), "{findings:?}");
+    let old_model = &impact.records["/records/filemap/cost_models/unknown"];
+    let new_model = &impact.records["/records/filemap/cost_models/new"];
+    let before = &old_model.base.as_ref().unwrap().targets;
+    let after = &old_model.candidate.as_ref().unwrap().targets;
+    assert_eq!(before.len(), 13);
+    assert!(before.contains("file:src.bin"));
+    assert!(before.contains("test:t"));
+    assert_eq!(
+        before
+            .difference(after)
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["test:t"]
+    );
+    assert!(after.is_subset(before));
+    assert!(new_model.base.is_none());
+    assert_eq!(
+        new_model
+            .candidate
+            .as_ref()
+            .unwrap()
+            .targets
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["test:t"]
+    );
+}
+
+#[cfg(all(test, not(verus_keep_ghost)))]
+#[test]
+fn owner_inventory_moves_only_the_explicitly_reassigned_file() {
+    let (impact, findings) = produce(
+        &views("standard", "retarget"),
+        &[],
+        support_classification::reply(&[]),
+    );
+    assert!(findings.is_empty(), "{findings:?}");
+    use chrono_judge_filemap::produce;
+    use support::views;
+    let host = &impact.records["/records/projects/owners/host"];
+    let project = &impact.records["/records/projects/owners/p"];
+    let before = &host.base.as_ref().unwrap().targets;
+    let after = &host.candidate.as_ref().unwrap().targets;
+    assert_eq!(before.len(), 12);
+    assert_eq!(
+        before
+            .difference(after)
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["file:src.bin"]
+    );
+    assert!(after.is_subset(before));
+    assert!(project.base.as_ref().unwrap().targets.is_empty());
+    assert_eq!(
+        project
+            .candidate
+            .as_ref()
+            .unwrap()
+            .targets
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["file:src.bin"]
+    );
+}
+
+#[cfg(all(test, not(verus_keep_ghost)))]
+#[test]
 fn plan_record_changes_seed_direct_and_predecessor_owners_at_either_endpoint() {
     use chrono_judge_filemap::produce;
     use serde_json::json;
@@ -895,6 +969,39 @@ fn expect(actual: bool)
     requires actual,
 {
     if !actual { panic!(); }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn inventory_uses_exact_declarations_and_keeps_matching_rows() {
+    use policy::{declares_name, matches_declaration, matching_targets, plan_has_claim};
+    proof {
+        reveal_strlit("cost");
+        reveal_strlit("costly");
+        assert("cost"@.len() != "costly"@.len());
+    }
+    let rows = [(2u8, Some("cost")), (7u8, None), (9u8, Some("costly")), (3u8, Some("cost"))];
+    let targets = matching_targets(&rows, "cost");
+    proof {
+        let values = seq![(2u8, Some("cost")), (7u8, None), (9u8, Some("costly")), (3u8, Some("cost"))];
+        let matched = |row: (u8, Option<&str>)| row.1 matches Some(value) && value@ == "cost"@;
+        assert(rows@ =~= values);
+        values.take(0).lemma_filter_push(values[0], matched);
+        values.take(1).lemma_filter_push(values[1], matched);
+        values.take(2).lemma_filter_push(values[2], matched);
+        values.take(3).lemma_filter_push(values[3], matched);
+        assert(values =~= values.take(3).push(values[3]));
+        assert(values.take(3) =~= values.take(2).push(values[2]));
+        assert(values.take(2) =~= values.take(1).push(values[1]));
+        assert(values.take(1) =~= values.take(0).push(values[0]));
+        assert(values.filter(matched) =~= seq![values[0], values[3]]);
+    }
+    expect(targets.len() == 2);
+    expect(targets[0] == 2 && targets[1] == 3);
+    expect(!matches_declaration(None, "cost"));
+    expect(declares_name(&["cost"], "cost"));
+    expect(!declares_name(&[], "cost"));
+    expect(plan_has_claim(&["costly", "cost"], &["cost"]));
+    expect(!plan_has_claim(&["cost"], &[]));
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
