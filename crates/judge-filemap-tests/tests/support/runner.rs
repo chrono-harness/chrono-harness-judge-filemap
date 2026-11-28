@@ -1,11 +1,29 @@
 //! Emulate the installed runner at its command boundary. Git and both data commands are test executables.
+#![allow(unexpected_cfgs)]
+#[cfg(not(verus_keep_ghost))]
+use vstd::prelude::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+/// Leave the discovery observation usable so the caller reaches its final observation.
+pub fn refuse_final_observation(ordinal: usize, inject: bool) -> (refused: bool)
+    ensures refused == (ordinal == 2 && inject),
+{
+    ordinal == 2 && inject
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::{
     collections::BTreeMap,
     io::{self, BufRead, Write},
     process::{Command, Stdio},
 };
 
+#[cfg(not(verus_keep_ghost))]
 fn git(args: &[&str]) -> Result<Vec<u8>, String> {
     let out = Command::new(env!("CHRONO_TEST_GIT"))
         .arg("-C")
@@ -19,6 +37,7 @@ fn git(args: &[&str]) -> Result<Vec<u8>, String> {
         Err(String::from_utf8_lossy(&out.stderr).into())
     }
 }
+#[cfg(not(verus_keep_ghost))]
 fn tree(commit: &str) -> Result<BTreeMap<String, (String, String)>, String> {
     let bytes = git(&["ls-tree", "-rz", "--full-tree", commit])?;
     let mut map = BTreeMap::new();
@@ -35,10 +54,16 @@ fn tree(commit: &str) -> Result<BTreeMap<String, (String, String)>, String> {
     }
     Ok(map)
 }
+#[cfg(not(verus_keep_ghost))]
 fn operation(header: &Value, q: &Value) -> Result<Value, String> {
     let which = q["endpoint"].as_str().unwrap_or("base");
     let oid = header[which].as_str().unwrap();
     match q["op"].as_str().unwrap() {
+        "verify-tree" => Ok(json!(
+            String::from_utf8(git(&["rev-parse", &format!("{oid}^{{tree}}")])?)
+                .unwrap()
+                .trim()
+        )),
         "registry-snapshot" => {
             let ep: Value =
                 serde_json::from_str(include_str!("../fixtures/registration-standard.json"))
@@ -77,6 +102,7 @@ fn operation(header: &Value, q: &Value) -> Result<Value, String> {
         op => panic!("unexpected fixture operation {op}"),
     }
 }
+#[cfg(not(verus_keep_ghost))]
 fn main() {
     let mut input = io::stdin().lock();
     let mut first = String::new();
@@ -84,7 +110,14 @@ fn main() {
     let header: Value = serde_json::from_str(&first).unwrap();
     match std::env::args().nth(1).unwrap().as_str() {
         "git-facts-v1" => {
-            assert_eq!(header["mode"], "config");
+            let header = match header["mode"].as_str().unwrap() {
+                "config" => header,
+                "request" => {
+                    let req = &header["request"];
+                    json!({"base":req["base"]["commit"],"candidate":req["candidate"]["commit"],"config":req["config_path"]})
+                }
+                mode => panic!("unexpected reader mode {mode}"),
+            };
             if ["base", "candidate"]
                 .iter()
                 .any(|end| !header[*end].as_str().is_some_and(|s| s.len() == 40))
@@ -94,13 +127,28 @@ fn main() {
             }
             println!("{}", json!({"Ok":{"bound":false}}));
             io::stdout().flush().unwrap();
+            let mut observations = 0;
             for line in input.lines() {
-                let q = serde_json::from_str(&line.unwrap()).unwrap();
-                println!(
-                    "{}",
-                    serde_json::to_string(&operation(&header, &q)).unwrap()
-                );
+                let q: Value = serde_json::from_str(&line.unwrap()).unwrap();
+                let response = if q["op"] == "observation" {
+                    observations += 1;
+                    let faults = std::fs::read_to_string(".git/reader-faults").unwrap_or_default();
+                    if refuse_final_observation(observations, faults.contains("observation")) {
+                        Err("observation failed".to_owned())
+                    } else if faults.contains("facts") {
+                        Ok(json!({"processes":[{"observations": observations}]}))
+                    } else {
+                        Ok(Value::Null)
+                    }
+                } else {
+                    operation(&header, &q)
+                };
+                println!("{}", serde_json::to_string(&response).unwrap());
                 io::stdout().flush().unwrap();
+            }
+            let faults = std::fs::read_to_string(".git/reader-faults").unwrap_or_default();
+            if faults.contains("close") {
+                std::process::exit(9);
             }
         }
         "run-command-v1" => {

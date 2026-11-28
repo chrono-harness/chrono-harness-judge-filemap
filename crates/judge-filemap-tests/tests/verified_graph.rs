@@ -90,6 +90,179 @@ mod support_classification;
 
 #[cfg(all(test, not(verus_keep_ghost)))]
 #[test]
+fn impact_evidence_is_bound_before_evaluation_scheduling_and_collection() {
+    use chrono_judge_filemap::{collection_tests, decision, endpoint_tests};
+    use serde_json::{Value, json};
+    use std::fs;
+    use support::{CONFIG, commit, fixture_bin, git, init_endpoints, observed_delta};
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let bin = fixture_bin();
+    // The previous Cargo test binary may have set up these same links.
+    for (name, executable) in [
+        (
+            "chrono-harness",
+            env!("CARGO_BIN_EXE_chrono-test-filemap-runner"),
+        ),
+        (
+            "chrono-judge-registration",
+            env!("CARGO_BIN_EXE_chrono-test-registration"),
+        ),
+        (
+            "chrono-judge-mixed",
+            env!("CARGO_BIN_EXE_chrono-test-mixed"),
+        ),
+    ] {
+        let path = bin.join(name);
+        if let Ok(target) = path.read_link() {
+            assert_eq!(target, std::path::Path::new(executable));
+            fs::remove_file(path).unwrap();
+        }
+    }
+    init_endpoints(&root);
+    fs::write(root.join("src.bin"), b"before").unwrap();
+    let base = commit(&root);
+    fs::write(root.join("src.bin"), b"after").unwrap();
+    let candidate = commit(&root);
+    let delta = observed_delta(&root, &base, &candidate).unwrap();
+    let endpoint = |commit: &str| json!({"root":root,"commit":commit,"tree":git(&root,&["rev-parse",&format!("{commit}^{{tree}}")])});
+    let request = json!({"request_id":"filemap-evidence","config_path":CONFIG,
+        "base":endpoint(&base),"candidate":endpoint(&candidate),"delta":delta,
+        "observations":{},"scope":{"kind":"collect"}});
+    let bytes = |value: Value| serde_json::to_vec(&value).unwrap();
+    let evaluate = |req: &Value| decision(bytes(json!({"request":req})).as_slice()).unwrap();
+    let collect = |req: &Value| {
+        collection_tests(
+            &root,
+            bytes(json!({"request":req,"migration":null})).as_slice(),
+        )
+    };
+    let schedule = |scheduling: bool| {
+        endpoint_tests(
+            &root,
+            bytes(json!({"config":CONFIG,"base":base,"candidate":candidate,
+            "scheduling":scheduling}))
+            .as_slice(),
+        )
+    };
+    let assert_error = |result: &Value, code: &str, message: &str| {
+        assert_eq!(result["status"], "error", "{result}");
+        assert_eq!(result["findings"].as_array().unwrap().len(), 1, "{result}");
+        assert_eq!(result["findings"][0]["code"], code, "{result}");
+        assert!(
+            result["findings"][0]["message"]
+                .as_str()
+                .unwrap()
+                .contains(message),
+            "{result}"
+        );
+        assert!(result["outputs"].get("impact").is_none(), "{result}");
+    };
+
+    let evaluated = evaluate(&request);
+    assert_eq!(evaluated["status"], "pass", "{evaluated}");
+    assert_eq!(
+        evaluated["outputs"]["registration_view"],
+        json!({"registration":"fixture"})
+    );
+    let plain = schedule(false).unwrap();
+    let scheduled = schedule(true).unwrap();
+    let collected = collect(&request).unwrap();
+    for result in [&plain, &scheduled, &collected] {
+        assert_eq!(result["tests"], json!(["test:t"]), "{result}");
+        assert_eq!(
+            result["tests"], evaluated["outputs"]["impact"]["tests"],
+            "{result}"
+        );
+        assert_eq!(result["retired_tests"], json!([]), "{result}");
+        assert_eq!(result["findings"], json!([]), "{result}");
+    }
+    for key in ["reached", "changed_paths", "git_facts"] {
+        assert!(plain.get(key).is_none(), "{plain}");
+        assert!(scheduled.get(key).is_some(), "{scheduled}");
+    }
+    assert_eq!(scheduled["changed_paths"], json!(["src.bin"]));
+    assert_eq!(scheduled["reached"], collected["reached"]);
+    assert!(collected.get("changed_paths").is_none(), "{collected}");
+    assert!(collected.get("git_facts").is_some(), "{collected}");
+
+    for end in ["base", "candidate"] {
+        let mut wrong = request.clone();
+        wrong[end]["tree"] = json!("0".repeat(40));
+        assert_error(&evaluate(&wrong), "E_INPUT", "fixed endpoint tree mismatch");
+        assert_eq!(collect(&wrong).unwrap_err(), "fixed endpoint tree mismatch");
+    }
+    let mut wrong = request.clone();
+    wrong["delta"][0]["new_mode"] = json!("100755");
+    assert_error(
+        &evaluate(&wrong),
+        "E_INPUT",
+        "DELTA differs from fixed endpoints",
+    );
+    assert_eq!(
+        collect(&wrong).unwrap_err(),
+        "DELTA differs from fixed endpoints"
+    );
+    for (field, bad) in [
+        (
+            "candidate",
+            json!({"root":"/other","commit":candidate,"tree":request["candidate"]["tree"]}),
+        ),
+        ("scope", json!({"kind":"execute"})),
+        ("scope", Value::Null),
+    ] {
+        let mut wrong = request.clone();
+        wrong[field] = bad;
+        assert_eq!(
+            collect(&wrong).unwrap_err(),
+            "FILEMAP collection requires this checkout and a collection scope"
+        );
+    }
+
+    let reply = root.join("registration-reply");
+    for fault in ["wrong-identity", "wrong-candidate"] {
+        fs::write(&reply, fault).unwrap();
+        let error = "E_PROTOCOL: registration impact query identity";
+        assert_error(&evaluate(&request), "E_INPUT", error);
+        assert_eq!(collect(&request).unwrap_err(), error);
+        assert_eq!(schedule(true).unwrap_err(), error);
+        assert_eq!(schedule(false).unwrap_err(), error);
+    }
+    fs::write(&reply, "wrong-request").unwrap();
+    assert_error(
+        &evaluate(&request),
+        "E_INPUT",
+        "registration impact query identity",
+    );
+    fs::write(&reply, "missing-view").unwrap();
+    assert_error(&evaluate(&request), "E_INPUT", "missing registration view");
+    assert_eq!(collect(&request).unwrap()["tests"], json!(["test:t"]));
+    fs::write(&reply, "other-error").unwrap();
+    assert_error(&evaluate(&request), "E_INPUT", "E_OTHER: evidence rejected");
+    fs::write(&reply, "semantic-error").unwrap();
+    assert_error(
+        &evaluate(&request),
+        "E_SEMANTIC_SOURCE",
+        "E_SEMANTIC_SOURCE: evidence rejected",
+    );
+
+    let reader = root.join(".git/reader-faults");
+    fs::write(&reader, "observation close").unwrap();
+    let result = evaluate(&request);
+    assert_error(&result, "E_INPUT", "observation failed");
+    assert!(result["outputs"].get("git_facts").is_none(), "{result}");
+    fs::write(&reader, "facts close").unwrap();
+    let result = evaluate(&request);
+    assert_error(&result, "E_INPUT", "git-facts-v1 exited");
+    assert_eq!(
+        result["outputs"]["git_facts"]["processes"],
+        json!([{"observations":2}])
+    );
+}
+
+#[cfg(all(test, not(verus_keep_ghost)))]
+#[test]
 fn cost_preparation_binds_prior_impacts_and_registration_reply() {
     use serde_json::json;
     use std::{collections::BTreeMap, fs};
@@ -203,6 +376,10 @@ fn cost_preparation_binds_prior_impacts_and_registration_reply() {
 #[cfg(verus_keep_ghost)]
 #[path = "support/registration.rs"]
 mod registration_fixture;
+
+#[cfg(verus_keep_ghost)]
+#[path = "support/runner.rs"]
+mod runner_fixture;
 
 #[cfg(verus_keep_ghost)]
 mod cost_binding {
@@ -588,6 +765,108 @@ fn expect(actual: bool)
     requires actual,
 {
     if !actual { panic!(); }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn impact_evidence_rejects_wrong_endpoints_scope_and_missing_view() {
+    use policy::{admit_tree, collection_request_matches, reply_commits_match, required_registration_view};
+    proof {
+        reveal_strlit("base");
+        reveal_strlit("candidate");
+        reveal_strlit("collect");
+        reveal_strlit("execute-unit");
+        assert("base"@.len() != "candidate"@.len());
+        assert("collect"@.len() != "execute-unit"@.len());
+    }
+    expect(matches!(admit_tree("base", "base"), Ok(())));
+    expect(matches!(admit_tree("base", "candidate"), Err(_)));
+    expect(reply_commits_match(["base", "candidate"], Some(("base", "candidate"))));
+    expect(!reply_commits_match(["base", "candidate"], Some(("candidate", "base"))));
+    expect(!reply_commits_match(["base", "candidate"], Some(("base", "base"))));
+    expect(!reply_commits_match(["base", "candidate"], None));
+    expect(collection_request_matches(true, Some("collect")));
+    expect(!collection_request_matches(false, Some("collect")));
+    expect(!collection_request_matches(true, Some("execute-unit")));
+    expect(!collection_request_matches(true, None));
+    expect(matches!(required_registration_view(Some(5u8)), Ok(5)));
+    expect(matches!(required_registration_view(None::<u8>), Err(_)));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn evaluation_keeps_observation_then_close_then_business() {
+    use policy::finish_evaluation;
+    let refused = finish_evaluation(Err::<u8, u8>(1), Err(2), Err::<u8, u8>(3));
+    expect(matches!(refused, (None, Err(1))));
+    let close = finish_evaluation(Ok(4u8), Err(2u8), Err::<u8, u8>(3));
+    expect(matches!(close, (Some(4), Err(2))));
+    let business = finish_evaluation(Ok(4u8), Ok(()), Err::<u8, u8>(3));
+    expect(matches!(business, (Some(4), Err(3))));
+    let accepted = finish_evaluation(Ok(4u8), Ok::<(), u8>(()), Ok(5u8));
+    expect(matches!(accepted, (Some(4), Ok(5))));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn delta_admission_uses_every_field_and_order_and_scheduling_projects_paths() {
+    use policy::{admit_delta, scheduling_paths, Delta, equal_text};
+    proof {
+        reveal_strlit("new");
+        reveal_strlit("old-path");
+        reveal_strlit("mode");
+    }
+    let first = Delta { kind:"M".to_owned(), path:"new".to_owned(),
+        old_blob: None, new_blob: None, old_mode: None, new_mode: Some("mode".to_owned()) };
+    let second = Delta { kind:"M".to_owned(), path:"old-path".to_owned(),
+        old_blob: None, new_blob: None, old_mode: None, new_mode: None };
+    let expected = vec![first, second];
+    expect(matches!(admit_delta(&expected, &expected), Ok(())));
+    let empty: [Delta; 0] = [];
+    proof {
+        let rows = expected@.map_values(|row: Delta| row.evidence());
+        let none = empty@.map_values(|row: Delta| row.evidence());
+        assert(rows.len() == 2);
+        assert(none.len() == 0);
+        assert(rows != none);
+    }
+    expect(matches!(admit_delta(&expected, &empty), Err(_)));
+    let reordered = vec![
+        Delta { kind:"M".to_owned(), path:"old-path".to_owned(),
+            old_blob: None, new_blob: None, old_mode: None, new_mode: None },
+        Delta { kind:"M".to_owned(), path:"new".to_owned(),
+            old_blob: None, new_blob: None, old_mode: None, new_mode: Some("mode".to_owned()) },
+    ];
+    proof {
+        let rows = expected@.map_values(|row: Delta| row.evidence());
+        let swapped = reordered@.map_values(|row: Delta| row.evidence());
+        assert("new"@.len() != "old-path"@.len());
+        assert(rows[0].1 != swapped[0].1);
+        assert(rows != swapped);
+    }
+    expect(matches!(admit_delta(&expected, &reordered), Err(_)));
+    let wrong_mode = vec![
+        Delta { kind:"M".to_owned(), path:"new".to_owned(),
+            old_blob: None, new_blob: None, old_mode: None, new_mode: None },
+        Delta { kind:"M".to_owned(), path:"old-path".to_owned(),
+            old_blob: None, new_blob: None, old_mode: None, new_mode: None },
+    ];
+    proof {
+        let rows = expected@.map_values(|row: Delta| row.evidence());
+        let changed = wrong_mode@.map_values(|row: Delta| row.evidence());
+        assert(rows[0].5 != changed[0].5);
+        assert(rows != changed);
+    }
+    expect(matches!(admit_delta(&expected, &wrong_mode), Err(_)));
+    expect(matches!(scheduling_paths(false, &expected), None));
+    if let Some(paths) = scheduling_paths(true, &expected) {
+        expect(paths.len() == 2);
+        proof {
+            let keys = paths@.map_values(|path: &str| path@);
+            assert(keys[0] == "new"@ && keys[1] == "old-path"@);
+        }
+        expect(equal_text(paths[0], "new"));
+        expect(equal_text(paths[1], "old-path"));
+    } else {
+        expect(false);
+    }
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
