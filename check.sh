@@ -35,14 +35,8 @@ coverage_failure() {
 }
 
 # Read the exact library selected by Cargo in the build of the tested executable.
-metadata=$(jq -ers --arg manifest "$(pwd -P)/$product" '
-  [.[] | select(.reason == "compiler-artifact" and .manifest_path == $manifest
-                 and .target.kind == ["lib"]) | .filenames[] | select(endswith(".rmeta"))]
-  | if length == 1 then .[0] else error("expected the product library") end
-' "$scratch/build.jsonl") || coverage_failure "native library was not identified"
-filename=${metadata##*/}
-stem=${filename#lib}
-stem=${metadata%/*}/${stem%.rmeta}
+stem=$(chrono-host-bootstrap select-native-cargo-library "$(pwd -P)/$product" "$scratch/build.jsonl") ||
+  coverage_failure "native library was not identified"
 chrono-host-bootstrap check-compiler-sources native "$stem" src/lib.rs src/strict_json.rs src/verified_graph.rs src/request.rs src/registration.rs src/cost_inputs.rs src/graph_key.rs src/graph.rs src/workflow_paths.rs src/finding_origin.rs src/workflow.rs src/registration_environment.rs src/records.rs src/runtime.rs ||
   coverage_failure "native library differs from required sources"
 
