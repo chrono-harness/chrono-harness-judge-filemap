@@ -100,20 +100,22 @@ pub use crate::classification::policy as document_policy;
 #[cfg(verus_keep_ghost)]
 pub use classification::policy as document_policy;
 
+#[cfg(not(verus_keep_ghost))]
+pub(crate) fn endpoint_role(node: NodeKind) -> EndpointRole {
+    match node {
+        NodeKind::File => EndpointRole::File,
+        NodeKind::Project => EndpointRole::Project,
+        NodeKind::Script => EndpointRole::Script,
+        NodeKind::Test => EndpointRole::Test,
+        NodeKind::Judge => EndpointRole::Judge,
+        NodeKind::Input | NodeKind::Tool | NodeKind::Environment => EndpointRole::Resource,
+    }
+}
+
 /// Keep the public registration-type entry point for Rust callers.
 #[cfg(not(verus_keep_ghost))]
 pub fn valid_types(kind: EdgeKind, from: NodeKind, to: NodeKind) -> bool {
-    fn role(node: NodeKind) -> EndpointRole {
-        match node {
-            NodeKind::File => EndpointRole::File,
-            NodeKind::Project => EndpointRole::Project,
-            NodeKind::Script => EndpointRole::Script,
-            NodeKind::Test => EndpointRole::Test,
-            NodeKind::Judge => EndpointRole::Judge,
-            NodeKind::Input | NodeKind::Tool | NodeKind::Environment => EndpointRole::Resource,
-        }
-    }
-    valid_node_roles(kind, role(from), role(to))
+    valid_node_roles(kind, endpoint_role(from), endpoint_role(to))
 }
 
 #[cfg(verus_keep_ghost)]
@@ -336,6 +338,91 @@ impl Eq for EdgeKind {}
 /// Registered inputs, tools and environment variables share the same edge rules.
 #[derive(Copy, Clone)]
 pub enum EndpointRole { File, Project, Script, Resource, Test, Judge }
+
+/// Registration operations normally carry a name. Other JSON values retain their
+/// serde_json equality class, including null from a missing action field.
+#[derive(Clone, Copy)]
+pub enum PlanOperation<'a> { Name(&'a str), Other(usize) }
+
+pub struct PlanAction<'a> {
+    pub owner: &'a str,
+    pub role: EndpointRole,
+    pub operation: PlanOperation<'a>,
+}
+
+pub open spec fn same_operation(a: PlanOperation, b: PlanOperation) -> bool {
+    match (a, b) {
+        (PlanOperation::Name(a), PlanOperation::Name(b)) => a@ == b@,
+        (PlanOperation::Other(a), PlanOperation::Other(b)) => a == b,
+        _ => false,
+    }
+}
+
+fn action_in_plan(action: &PlanAction, operations: &[PlanOperation]) -> (found: bool)
+    ensures found == ((action.role == EndpointRole::Project || action.role == EndpointRole::Script)
+        && exists|j: int| 0 <= j < operations.len() && same_operation(action.operation, operations@[j])),
+{
+    if !matches!(action.role, EndpointRole::Project | EndpointRole::Script) { return false; }
+    for j in 0..operations.len()
+        invariant action.role == EndpointRole::Project || action.role == EndpointRole::Script,
+            forall|k: int| 0 <= k < j ==> !same_operation(action.operation, operations@[k]),
+    {
+        let equal = match (action.operation, operations[j]) {
+            (PlanOperation::Name(a), PlanOperation::Name(b)) => equal_text(a, b),
+            (PlanOperation::Other(a), PlanOperation::Other(b)) => a == b,
+            _ => false,
+        };
+        if equal {
+            assert(same_operation(action.operation, operations@[j as int]));
+            assert(exists|k: int| 0 <= k < operations.len() && same_operation(action.operation, operations@[k]));
+            return true;
+        }
+    }
+    false
+}
+
+pub open spec fn action_owners(actions: Seq<PlanAction>, operations: Seq<PlanOperation>, end: int)
+    -> Set<Seq<u8>>
+{
+    Set::new(|key: Seq<u8>| exists|i: int| 0 <= i < end && actions[i].owner.spec_bytes() == key
+        && (actions[i].role == EndpointRole::Project || actions[i].role == EndpointRole::Script)
+        && exists|j: int| 0 <= j < operations.len() && same_operation(actions[i].operation, operations[j]))
+}
+
+/// Direct test definitions and every registered project/script whose action occurs in the plan.
+pub fn plan_owner_names<'a>(mut definitions: Vec<&'a str>, actions: &[PlanAction<'a>],
+    operations: &[PlanOperation]) -> (out: Vec<&'a str>)
+    ensures ordered_names(out@), name_members(out@) == name_members(definitions@)
+        + action_owners(actions@, operations@, actions.len() as int),
+{
+    let ghost direct = name_members(definitions@);
+    assert(action_owners(actions@, operations@, 0) =~= Set::<Seq<u8>>::empty());
+    for i in 0..actions.len()
+        invariant name_members(definitions@) == direct + action_owners(actions@, operations@, i as int),
+    {
+        let action = &actions[i];
+        let matched = action_in_plan(action, operations);
+        proof {
+            let prior = action_owners(actions@, operations@, i as int);
+            let more = action_owners(actions@, operations@, i as int + 1);
+            assert forall|key: Seq<u8>| more.contains(key) == (prior.contains(key)
+                || matched && key == action.owner.spec_bytes()) by {
+                if more.contains(key) && !prior.contains(key) {
+                    let k = choose|k: int| 0 <= k < i as int + 1 && actions@[k].owner.spec_bytes() == key
+                        && (actions@[k].role == EndpointRole::Project || actions@[k].role == EndpointRole::Script)
+                        && exists|j: int| 0 <= j < operations.len() && same_operation(actions@[k].operation, operations@[j]);
+                    assert(k == i);
+                }
+            }
+        }
+        if matched {
+            proof { name_members_push(definitions@, action.owner); }
+            definitions.push(action.owner);
+        }
+        assert(name_members(definitions@) =~= direct + action_owners(actions@, operations@, i as int + 1));
+    }
+    name_inventory(&definitions)
+}
 
 /// Complete allowed relation, stated by destination rather than dispatch order.
 pub open spec fn permitted_types(kind: EdgeKind, from: EndpointRole, to: EndpointRole) -> bool {
