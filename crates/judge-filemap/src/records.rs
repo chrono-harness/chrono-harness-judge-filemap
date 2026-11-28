@@ -1,4 +1,8 @@
 //! Stable registration record identities and set normalization, owned by FILEMAP impact.
+#[cfg(verus_keep_ghost)]
+use super::graph_key::equal_text;
+#[cfg(not(verus_keep_ghost))]
+use crate::verified_graph::equal_text;
 #[cfg(not(verus_keep_ghost))]
 use vstd::prelude::verus;
 #[cfg(verus_keep_ghost)]
@@ -14,6 +18,137 @@ pub fn field_difference(equal: bool, both_objects: bool) -> (kind: FieldDifferen
     if equal { FieldDifference::Equal }
     else if both_objects { FieldDifference::Members }
     else { FieldDifference::Leaf }
+}
+
+#[derive(Clone, Copy)]
+pub enum InventoryRule {
+    Rows {
+        identity: &'static str,
+        target_kind: Option<&'static str>,
+        test_aliases: bool,
+        artifact_owners: bool,
+    },
+    ExecutionUnits,
+    Scheduling,
+    Plans,
+    ProjectEdges,
+    CostModels,
+    Owners,
+    Environment,
+    Field,
+}
+
+pub const INVENTORY_RULES: [(&'static str, &'static str, InventoryRule); 15] = [
+    ("filemap", "files", InventoryRule::Rows { identity: "path", target_kind: Some("file"), test_aliases: true, artifact_owners: false }),
+    ("projects", "projects", InventoryRule::Rows { identity: "id", target_kind: Some("project"), test_aliases: true, artifact_owners: false }),
+    ("projects", "scripts", InventoryRule::Rows { identity: "id", target_kind: Some("script"), test_aliases: true, artifact_owners: false }),
+    ("judges", "judges", InventoryRule::Rows { identity: "id", target_kind: Some("judge"), test_aliases: true, artifact_owners: false }),
+    ("filemap", "test_costs", InventoryRule::Rows { identity: "test", target_kind: Some("test"), test_aliases: false, artifact_owners: false }),
+    ("config", "tools", InventoryRule::Rows { identity: "id", target_kind: Some("tool"), test_aliases: true, artifact_owners: false }),
+    ("workflow", "stability", InventoryRule::Rows { identity: "id", target_kind: None, test_aliases: false, artifact_owners: false }),
+    ("config", "artifacts", InventoryRule::Rows { identity: "path", target_kind: None, test_aliases: false, artifact_owners: true }),
+    ("config", "execution_units", InventoryRule::ExecutionUnits),
+    ("filemap", "execution_scheduling", InventoryRule::Scheduling),
+    ("filemap", "execution_plans", InventoryRule::Plans),
+    ("filemap", "project_edges", InventoryRule::ProjectEdges),
+    ("filemap", "cost_models", InventoryRule::CostModels),
+    ("projects", "owners", InventoryRule::Owners),
+    ("config", "environment", InventoryRule::Environment),
+];
+
+pub fn inventory_rule(scope: &str, field: &str) -> (rule: InventoryRule)
+    ensures
+        exists|i: int| 0 <= i < INVENTORY_RULES@.len()
+            && (#[trigger] INVENTORY_RULES@[i]).0@ == scope@
+            && INVENTORY_RULES@[i].1@ == field@
+            && INVENTORY_RULES@[i].2 == rule
+            && (forall|before: int| 0 <= before < i
+                ==> (#[trigger] INVENTORY_RULES@[before]).0@ != scope@
+                    || INVENTORY_RULES@[before].1@ != field@)
+        || rule == InventoryRule::Field
+            && (forall|i: int| 0 <= i < INVENTORY_RULES@.len()
+                ==> (#[trigger] INVENTORY_RULES@[i]).0@ != scope@ || INVENTORY_RULES@[i].1@ != field@),
+{
+    let rules = INVENTORY_RULES;
+    for i in 0..rules.len()
+        invariant rules@ == INVENTORY_RULES@,
+            forall|j: int| 0 <= j < i
+                ==> (#[trigger] rules@[j]).0@ != scope@ || rules@[j].1@ != field@,
+    {
+        let (registered_scope, registered_field, rule) = rules[i];
+        if equal_text(scope, registered_scope) && equal_text(field, registered_field) {
+            assert(INVENTORY_RULES@[i as int].2 == rule);
+            return rule;
+        }
+    }
+    InventoryRule::Field
+}
+
+/// JSON string observations use exact text equality. Absent and non-string fields do not match.
+pub fn matches_declaration(observed: Option<&str>, declared: &str) -> (matches: bool)
+    ensures matches == (observed matches Some(value) && value@ == declared@),
+{
+    match observed {
+        Some(value) => equal_text(value, declared),
+        None => false,
+    }
+}
+
+/// Every matching row is retained in input order, including repeated targets.
+pub fn matching_targets<T: Copy>(rows: &[(T, Option<&str>)], declared: &str)
+    -> (targets: Vec<T>)
+    ensures targets@ == rows@.filter(|row: (T, Option<&str>)|
+        row.1 matches Some(value) && value@ == declared@).map_values(|row: (T, Option<&str>)| row.0),
+{
+    let mut targets = Vec::new();
+    for i in 0..rows.len()
+        invariant targets@ == rows@.take(i as int).filter(|row: (T, Option<&str>)|
+            row.1 matches Some(value) && value@ == declared@).map_values(|row: (T, Option<&str>)| row.0),
+    {
+        let row = rows[i];
+        if matches_declaration(row.1, declared) {
+            targets.push(row.0);
+        }
+        proof {
+            let prefix = rows@.take(i as int);
+            let matching = |row: (T, Option<&str>)| row.1 matches Some(value) && value@ == declared@;
+            assert(rows@.take(i as int + 1) =~= prefix.push(row));
+            prefix.lemma_filter_push(row, matching);
+        }
+    }
+    assert(rows@.take(rows.len() as int) =~= rows@);
+    targets
+}
+
+pub fn declares_name(names: &[&str], declared: &str) -> (found: bool)
+    ensures found == (exists|i: int| 0 <= i < names.len() && (#[trigger] names@[i])@ == declared@),
+{
+    for i in 0..names.len()
+        invariant forall|j: int| 0 <= j < i ==> (#[trigger] names@[j])@ != declared@,
+    {
+        if equal_text(names[i], declared) {
+            assert(names@[i as int]@ == declared@);
+            return true;
+        }
+    }
+    false
+}
+
+/// A claim affects a plan when an operation in that plan is named by the claim's conflict set.
+pub fn plan_has_claim(operations: &[&str], affected: &[&str]) -> (found: bool)
+    ensures found == (exists|i: int, j: int| 0 <= i < operations.len() && 0 <= j < affected.len()
+        && (#[trigger] operations@[i])@ == (#[trigger] affected@[j])@),
+{
+    for i in 0..operations.len()
+        invariant forall|k: int, j: int| 0 <= k < i && 0 <= j < affected.len()
+            ==> (#[trigger] operations@[k])@ != (#[trigger] affected@[j])@,
+    {
+        if declares_name(affected, operations[i]) {
+            assert(exists|j: int| 0 <= j < affected.len() && (#[trigger] affected@[j])@ == operations@[i as int]@);
+            return true;
+        }
+    }
+    false
 }
 }
 #[cfg(not(verus_keep_ghost))]
@@ -138,6 +273,25 @@ fn normalize(v: &Value, key: &str) -> Value {
     }
 }
 #[cfg(not(verus_keep_ghost))]
+fn declaration_rows<'a>(rows: &'a Value, field: &str) -> Vec<(&'a Value, Option<&'a str>)> {
+    rows.as_array()
+        .unwrap()
+        .iter()
+        .map(|row| (row, row[field].as_str()))
+        .collect()
+}
+
+#[cfg(not(verus_keep_ghost))]
+fn declared_names(value: &Value) -> Vec<&str> {
+    value
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+        .collect()
+}
+
+#[cfg(not(verus_keep_ghost))]
 pub fn inventory(
     r: &Endpoint,
     nodes: &BTreeMap<String, NodeView>,
@@ -190,286 +344,280 @@ pub fn inventory(
             );
         };
         for (key, v) in value.as_object().unwrap() {
-            let identity = match (scope, key.as_str()) {
-                ("filemap", "files") => Some(("path", "file")),
-                ("projects", "projects") => Some(("id", "project")),
-                ("projects", "scripts") => Some(("id", "script")),
-                ("judges", "judges") => Some(("id", "judge")),
-                ("filemap", "test_costs") => Some(("test", "")),
-                ("config", "tools") => Some(("id", "tool")),
-                ("workflow", "stability") => Some(("id", "")),
-                ("config", "artifacts") => Some(("path", "")),
-                _ => None,
-            };
-            if let Some((id, prefix)) = identity {
-                for (index, row) in v.as_array().unwrap().iter().enumerate() {
-                    let id = row[id].as_str().unwrap();
-                    let target = if !prefix.is_empty() {
-                        format!("{prefix}:{id}")
-                    } else if key == "test_costs" {
-                        format!("test:{id}")
-                    } else {
-                        format!("file:{path}")
-                    };
-                    let mut targets = BTreeSet::from([target]);
-                    // Artifact ownership is an explicit declaration. Changing/removing
-                    // it affects that owner at each endpoint, without deriving any
-                    // source directory, language or dependency from the output path.
-                    if scope == "config" && key == "artifacts" {
-                        let owner = row["owner"].as_str().unwrap();
-                        for prefix in ["project", "script"] {
-                            let node = format!("{prefix}:{owner}");
-                            if nodes.contains_key(&node) {
-                                targets.insert(node);
+            match inventory_rule(scope, key) {
+                InventoryRule::Rows {
+                    identity,
+                    target_kind,
+                    test_aliases,
+                    artifact_owners,
+                } => {
+                    for (index, row) in v.as_array().unwrap().iter().enumerate() {
+                        let id = row[identity].as_str().unwrap();
+                        let target = match target_kind {
+                            Some(kind) => format!("{kind}:{id}"),
+                            None => format!("file:{path}"),
+                        };
+                        let mut targets = BTreeSet::from([target.clone()]);
+                        // Artifact ownership is an explicit declaration. Changing/removing
+                        // it affects that owner at each endpoint, without deriving any
+                        // source directory, language or dependency from the output path.
+                        if artifact_owners {
+                            let owner = row["owner"].as_str().unwrap();
+                            for prefix in ["project", "script"] {
+                                let node = format!("{prefix}:{owner}");
+                                if nodes.contains_key(&node) {
+                                    targets.insert(node);
+                                }
                             }
-                        }
-                        if let Some(policy) = r.filemap().get("execution_scheduling") {
-                            for (operation, claims) in policy["claims"].as_object().unwrap() {
-                                if claims["outputs"]
-                                    .as_array()
-                                    .unwrap()
-                                    .iter()
-                                    .any(|p| p == &row["path"])
-                                {
-                                    for (test, plan) in
-                                        r.filemap()["execution_plans"].as_object().unwrap()
-                                    {
-                                        if plan["operations"]
-                                            .as_array()
-                                            .unwrap()
-                                            .iter()
-                                            .any(|o| o == operation)
+                            if let Some(policy) = r.filemap().get("execution_scheduling") {
+                                for (operation, claims) in policy["claims"].as_object().unwrap() {
+                                    if declares_name(&declared_names(&claims["outputs"]), id) {
+                                        for (test, plan) in
+                                            r.filemap()["execution_plans"].as_object().unwrap()
                                         {
-                                            targets.extend(plan_targets(test, Some(plan), nodes));
+                                            if declares_name(
+                                                &declared_names(&plan["operations"]),
+                                                operation,
+                                            ) {
+                                                targets.extend(plan_targets(
+                                                    test,
+                                                    Some(plan),
+                                                    nodes,
+                                                ));
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
-                    }
-                    if !prefix.is_empty() {
-                        if let Some(tests) = r.active_test_aliases.get(&format!("{prefix}:{id}")) {
-                            targets.extend(tests.iter().cloned());
+                        if test_aliases {
+                            if let Some(tests) = r.active_test_aliases.get(&target) {
+                                targets.extend(tests.iter().cloned());
+                            }
                         }
+                        add(key, id, format!("/{key}/{index}"), row, targets);
                     }
-                    add(key, id, format!("/{key}/{index}"), row, targets);
                 }
-            } else if scope == "config" && key == "execution_units" {
-                // Ownership and shared-operation changes seed only explicitly
-                // named plans at both endpoints.  A test alias alone is not an
-                // execution edge, so retain its registered producer identities.
-                for (unit, definition) in v["units"].as_object().into_iter().flatten() {
-                    let tests: Vec<_> = definition["tests"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .filter_map(Value::as_str)
-                        .collect();
-                    let mut targets = BTreeSet::new();
-                    for test in tests {
-                        targets.extend(plan_targets(
-                            test,
-                            r.filemap()["execution_plans"].get(test),
-                            nodes,
-                        ));
-                    }
-                    add(
-                        "units",
-                        unit,
-                        format!("/execution_units/units/{}", escape(unit)),
-                        definition,
-                        targets,
-                    );
-                }
-                for (operation, owners) in v["shared_operations"].as_object().into_iter().flatten()
-                {
-                    let mut targets = BTreeSet::new();
-                    for owner in owners
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .filter_map(Value::as_str)
-                    {
-                        for test in v["units"][owner]["tests"]
+                InventoryRule::ExecutionUnits => {
+                    // Ownership and shared-operation changes seed only explicitly
+                    // named plans at both endpoints.  A test alias alone is not an
+                    // execution edge, so retain its registered producer identities.
+                    for (unit, definition) in v["units"].as_object().into_iter().flatten() {
+                        let tests: Vec<_> = definition["tests"]
                             .as_array()
                             .into_iter()
                             .flatten()
                             .filter_map(Value::as_str)
-                        {
+                            .collect();
+                        let mut targets = BTreeSet::new();
+                        for test in tests {
                             targets.extend(plan_targets(
                                 test,
                                 r.filemap()["execution_plans"].get(test),
                                 nodes,
                             ));
                         }
+                        add(
+                            "units",
+                            unit,
+                            format!("/execution_units/units/{}", escape(unit)),
+                            definition,
+                            targets,
+                        );
                     }
-                    add(
-                        "shared_operations",
-                        operation,
-                        format!("/execution_units/shared_operations/{}", escape(operation)),
-                        owners,
-                        targets,
-                    );
+                    for (operation, owners) in
+                        v["shared_operations"].as_object().into_iter().flatten()
+                    {
+                        let mut targets = BTreeSet::new();
+                        for owner in owners
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(Value::as_str)
+                        {
+                            for test in v["units"][owner]["tests"]
+                                .as_array()
+                                .into_iter()
+                                .flatten()
+                                .filter_map(Value::as_str)
+                            {
+                                targets.extend(plan_targets(
+                                    test,
+                                    r.filemap()["execution_plans"].get(test),
+                                    nodes,
+                                ));
+                            }
+                        }
+                        add(
+                            "shared_operations",
+                            operation,
+                            format!("/execution_units/shared_operations/{}", escape(operation)),
+                            owners,
+                            targets,
+                        );
+                    }
+                    for field in ["collection_limits", "report_path"] {
+                        add(
+                            "execution_units",
+                            field,
+                            if v.get(field).is_some() {
+                                format!("/{key}/{field}")
+                            } else {
+                                format!("/{key}")
+                            },
+                            &v[field],
+                            BTreeSet::from([format!("file:{path}")]),
+                        );
+                    }
                 }
-                for field in ["collection_limits", "report_path"] {
+                InventoryRule::Scheduling => {
+                    let all_targets = || {
+                        r.filemap()["execution_plans"]
+                            .as_object()
+                            .unwrap()
+                            .iter()
+                            .flat_map(|(test, plan)| plan_targets(test, Some(plan), nodes))
+                            .collect()
+                    };
+                    for field in ["max_running", "resources"] {
+                        add(
+                            key,
+                            field,
+                            if v.get(field).is_some() {
+                                format!("/{key}/{field}")
+                            } else {
+                                format!("/{key}")
+                            },
+                            &v[field],
+                            all_targets(),
+                        );
+                    }
+                    if v["priority"]
+                        .as_array()
+                        .is_some_and(|priority| !priority.is_empty())
+                    {
+                        add(
+                            key,
+                            "priority",
+                            format!("/{key}/priority"),
+                            &json!({"priority":v["priority"]}),
+                            all_targets(),
+                        );
+                    }
+                    for (operation, claims) in v["claims"].as_object().unwrap() {
+                        let affected: Vec<_> = r.claim_conflicts[operation]
+                            .iter()
+                            .map(String::as_str)
+                            .collect();
+                        let targets = r.filemap()["execution_plans"]
+                            .as_object()
+                            .unwrap()
+                            .iter()
+                            .filter(|(_, p)| {
+                                plan_has_claim(&declared_names(&p["operations"]), &affected)
+                            })
+                            .flat_map(|(test, plan)| plan_targets(test, Some(plan), nodes))
+                            .collect();
+                        add(
+                            "execution_claims",
+                            operation,
+                            format!("/{key}/claims/{}", escape(operation)),
+                            claims,
+                            targets,
+                        );
+                    }
+                }
+                InventoryRule::Plans => {
+                    for (test, plan) in v.as_object().unwrap() {
+                        let targets = plan_targets(test, Some(plan), nodes);
+                        add(key, test, format!("/{key}/{}", escape(test)), plan, targets);
+                    }
+                }
+                InventoryRule::ProjectEdges => {
+                    for (index, edge) in v.as_array().unwrap().iter().enumerate() {
+                        let id =
+                            serde_json::to_string(&json!([edge["from"], edge["kind"], edge["to"]]))
+                                .unwrap();
+                        add(
+                            key,
+                            &id,
+                            format!("/{key}/{index}"),
+                            edge,
+                            BTreeSet::from([
+                                edge["from"].as_str().unwrap().into(),
+                                edge["to"].as_str().unwrap().into(),
+                            ]),
+                        );
+                    }
+                }
+                InventoryRule::CostModels => {
+                    for (id, cost) in v.as_object().unwrap() {
+                        let files = declaration_rows(&r.filemap()["files"], "cost");
+                        let mut targets: BTreeSet<_> = matching_targets(&files, id)
+                            .into_iter()
+                            .map(|f| format!("file:{}", f["path"].as_str().unwrap()))
+                            .collect();
+                        let tests = declaration_rows(&r.filemap()["test_costs"], "cost");
+                        targets.extend(
+                            matching_targets(&tests, id)
+                                .into_iter()
+                                .map(|t| format!("test:{}", t["test"].as_str().unwrap())),
+                        );
+                        add(key, id, format!("/{key}/{}", escape(id)), cost, targets);
+                    }
+                }
+                InventoryRule::Owners => {
+                    for (index, owner) in v.as_array().unwrap().iter().enumerate() {
+                        let id = owner.as_str().unwrap();
+                        let files = declaration_rows(&r.filemap()["files"], "owner");
+                        let targets = matching_targets(&files, id)
+                            .into_iter()
+                            .map(|f| format!("file:{}", f["path"].as_str().unwrap()))
+                            .collect();
+                        add(key, id, format!("/{key}/{index}"), owner, targets);
+                    }
+                }
+                InventoryRule::Environment => {
+                    for (index, input) in v["inputs"].as_array().unwrap().iter().enumerate() {
+                        let id = input["id"].as_str().unwrap();
+                        add(
+                            "inputs",
+                            id,
+                            format!("/environment/inputs/{index}"),
+                            input,
+                            BTreeSet::from([format!("input:{id}")]),
+                        );
+                    }
+                    let inherited_names = declared_names(&v["inherit"]);
+                    let names: Vec<_> = inherited_names
+                        .iter()
+                        .copied()
+                        .chain(v["values"].as_object().unwrap().keys().map(String::as_str))
+                        .collect();
+                    for name in crate::verified_graph::name_inventory(&names) {
+                        let inherited = declares_name(&inherited_names, name);
+                        let mut value = json!({"inherit":inherited,"value":v["values"].get(name)});
+                        if let Some(effective) = effective_environment {
+                            value["effective"] = json!(effective.get(name));
+                        }
+                        add(
+                            "environment",
+                            name,
+                            format!("/{key}"),
+                            &value,
+                            BTreeSet::from([format!("environment:{name}")]),
+                        );
+                    }
+                }
+                InventoryRule::Field => {
                     add(
-                        "execution_units",
-                        field,
-                        if v.get(field).is_some() {
-                            format!("/{key}/{field}")
-                        } else {
-                            format!("/{key}")
-                        },
-                        &v[field],
+                        "fields",
+                        key,
+                        format!("/{}", escape(key)),
+                        v,
                         BTreeSet::from([format!("file:{path}")]),
                     );
                 }
-            } else if scope == "filemap" && key == "execution_scheduling" {
-                let all_targets = || {
-                    r.filemap()["execution_plans"]
-                        .as_object()
-                        .unwrap()
-                        .iter()
-                        .flat_map(|(test, plan)| plan_targets(test, Some(plan), nodes))
-                        .collect()
-                };
-                for field in ["max_running", "resources"] {
-                    add(
-                        key,
-                        field,
-                        if v.get(field).is_some() {
-                            format!("/{key}/{field}")
-                        } else {
-                            format!("/{key}")
-                        },
-                        &v[field],
-                        all_targets(),
-                    );
-                }
-                if v["priority"]
-                    .as_array()
-                    .is_some_and(|priority| !priority.is_empty())
-                {
-                    add(
-                        key,
-                        "priority",
-                        format!("/{key}/priority"),
-                        &json!({"priority":v["priority"]}),
-                        all_targets(),
-                    );
-                }
-                for (operation, claims) in v["claims"].as_object().unwrap() {
-                    let affected = &r.claim_conflicts[operation];
-                    let targets = r.filemap()["execution_plans"]
-                        .as_object()
-                        .unwrap()
-                        .iter()
-                        .filter(|(_, p)| {
-                            p["operations"]
-                                .as_array()
-                                .unwrap()
-                                .iter()
-                                .filter_map(Value::as_str)
-                                .any(|o| affected.iter().any(|id| id.as_str() == o))
-                        })
-                        .flat_map(|(test, plan)| plan_targets(test, Some(plan), nodes))
-                        .collect();
-                    add(
-                        "execution_claims",
-                        operation,
-                        format!("/{key}/claims/{}", escape(operation)),
-                        claims,
-                        targets,
-                    );
-                }
-            } else if scope == "filemap" && key == "execution_plans" {
-                for (test, plan) in v.as_object().unwrap() {
-                    let targets = plan_targets(test, Some(plan), nodes);
-                    add(key, test, format!("/{key}/{}", escape(test)), plan, targets);
-                }
-            } else if scope == "filemap" && key == "project_edges" {
-                for (index, edge) in v.as_array().unwrap().iter().enumerate() {
-                    let id =
-                        serde_json::to_string(&json!([edge["from"], edge["kind"], edge["to"]]))
-                            .unwrap();
-                    add(
-                        key,
-                        &id,
-                        format!("/{key}/{index}"),
-                        edge,
-                        BTreeSet::from([
-                            edge["from"].as_str().unwrap().into(),
-                            edge["to"].as_str().unwrap().into(),
-                        ]),
-                    );
-                }
-            } else if scope == "filemap" && key == "cost_models" {
-                for (id, cost) in v.as_object().unwrap() {
-                    let mut targets = BTreeSet::new();
-                    for f in r.filemap()["files"].as_array().unwrap() {
-                        if f["cost"] == *id {
-                            targets.insert(format!("file:{}", f["path"].as_str().unwrap()));
-                        }
-                    }
-                    for t in r.filemap()["test_costs"].as_array().unwrap() {
-                        if t["cost"] == *id {
-                            targets.insert(format!("test:{}", t["test"].as_str().unwrap()));
-                        }
-                    }
-                    add(key, id, format!("/{key}/{}", escape(id)), cost, targets);
-                }
-            } else if scope == "projects" && key == "owners" {
-                for (index, owner) in v.as_array().unwrap().iter().enumerate() {
-                    let id = owner.as_str().unwrap();
-                    let targets = r.filemap()["files"]
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .filter(|f| f["owner"] == id)
-                        .map(|f| format!("file:{}", f["path"].as_str().unwrap()))
-                        .collect();
-                    add(key, id, format!("/{key}/{index}"), owner, targets);
-                }
-            } else if scope == "config" && key == "environment" {
-                for (index, input) in v["inputs"].as_array().unwrap().iter().enumerate() {
-                    let id = input["id"].as_str().unwrap();
-                    add(
-                        "inputs",
-                        id,
-                        format!("/environment/inputs/{index}"),
-                        input,
-                        BTreeSet::from([format!("input:{id}")]),
-                    );
-                }
-                let keys: BTreeSet<_> = v["inherit"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .chain(v["values"].as_object().unwrap().keys().map(String::as_str))
-                    .collect();
-                for name in keys {
-                    let inherited = v["inherit"].as_array().unwrap().contains(&json!(name));
-                    let mut value = json!({"inherit":inherited,"value":v["values"].get(name)});
-                    if let Some(effective) = effective_environment {
-                        value["effective"] = json!(effective.get(name));
-                    }
-                    add(
-                        "environment",
-                        name,
-                        format!("/{key}"),
-                        &value,
-                        BTreeSet::from([format!("environment:{name}")]),
-                    );
-                }
-            } else {
-                add(
-                    "fields",
-                    key,
-                    format!("/{}", escape(key)),
-                    v,
-                    BTreeSet::from([format!("file:{path}")]),
-                );
             }
         }
     }

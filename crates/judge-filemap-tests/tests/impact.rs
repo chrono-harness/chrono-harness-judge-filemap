@@ -1165,6 +1165,33 @@ fn changed_cost_keeps_distinct_old_new_values_and_references() {
     assert_eq!(tests(&i), ["test:t"]);
     let cost = &i.records["/records/filemap/test_costs/t"];
     assert_eq!(cost.base.as_ref().unwrap().value["cost"], "unknown");
+    let old_model = &i.records["/records/filemap/cost_models/unknown"];
+    let new_model = &i.records["/records/filemap/cost_models/new"];
+    let before = &old_model.base.as_ref().unwrap().targets;
+    let after = &old_model.candidate.as_ref().unwrap().targets;
+    assert_eq!(before.len(), 13);
+    assert!(before.contains("file:src.bin"));
+    assert!(before.contains("test:t"));
+    assert_eq!(
+        before
+            .difference(after)
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["test:t"]
+    );
+    assert!(after.is_subset(before));
+    assert!(new_model.base.is_none());
+    assert_eq!(
+        new_model
+            .candidate
+            .as_ref()
+            .unwrap()
+            .targets
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["test:t"]
+    );
     assert_eq!(
         i.records["/records/filemap/cost_models/unknown"]
             .base
@@ -1181,6 +1208,37 @@ fn changed_cost_keeps_distinct_old_new_values_and_references() {
             .unwrap()
             .value["cpu_ms"],
         json!(null)
+    );
+}
+
+#[test]
+fn owner_inventory_moves_only_the_explicitly_reassigned_file() {
+    let (impact, findings) = run("standard", "retarget", &[delta(FM)]);
+    assert!(findings.is_empty(), "{findings:?}");
+    let host = &impact.records["/records/projects/owners/host"];
+    let project = &impact.records["/records/projects/owners/p"];
+    let before = &host.base.as_ref().unwrap().targets;
+    let after = &host.candidate.as_ref().unwrap().targets;
+    assert_eq!(before.len(), 12);
+    assert_eq!(
+        before
+            .difference(after)
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["file:src.bin"]
+    );
+    assert!(after.is_subset(before));
+    assert!(project.base.as_ref().unwrap().targets.is_empty());
+    assert_eq!(
+        project
+            .candidate
+            .as_ref()
+            .unwrap()
+            .targets
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["file:src.bin"]
     );
 }
 

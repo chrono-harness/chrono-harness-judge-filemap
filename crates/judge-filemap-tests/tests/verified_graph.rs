@@ -898,6 +898,39 @@ fn expect(actual: bool)
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn inventory_uses_exact_declarations_and_keeps_matching_rows() {
+    use policy::{declares_name, matches_declaration, matching_targets, plan_has_claim};
+    proof {
+        reveal_strlit("cost");
+        reveal_strlit("costly");
+        assert("cost"@.len() != "costly"@.len());
+    }
+    let rows = [(2u8, Some("cost")), (7u8, None), (9u8, Some("costly")), (3u8, Some("cost"))];
+    let targets = matching_targets(&rows, "cost");
+    proof {
+        let values = seq![(2u8, Some("cost")), (7u8, None), (9u8, Some("costly")), (3u8, Some("cost"))];
+        let matched = |row: (u8, Option<&str>)| row.1 matches Some(value) && value@ == "cost"@;
+        assert(rows@ =~= values);
+        values.take(0).lemma_filter_push(values[0], matched);
+        values.take(1).lemma_filter_push(values[1], matched);
+        values.take(2).lemma_filter_push(values[2], matched);
+        values.take(3).lemma_filter_push(values[3], matched);
+        assert(values =~= values.take(3).push(values[3]));
+        assert(values.take(3) =~= values.take(2).push(values[2]));
+        assert(values.take(2) =~= values.take(1).push(values[1]));
+        assert(values.take(1) =~= values.take(0).push(values[0]));
+        assert(values.filter(matched) =~= seq![values[0], values[3]]);
+    }
+    expect(targets.len() == 2);
+    expect(targets[0] == 2 && targets[1] == 3);
+    expect(!matches_declaration(None, "cost"));
+    expect(declares_name(&["cost"], "cost"));
+    expect(!declares_name(&[], "cost"));
+    expect(plan_has_claim(&["costly", "cost"], &["cost"]));
+    expect(!plan_has_claim(&["cost"], &[]));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn impact_evidence_rejects_wrong_endpoints_scope_and_missing_view() {
     use policy::{admit_tree, collection_request_matches, reply_commits_match, required_registration_view};
     proof {
