@@ -96,7 +96,9 @@ mod native {
         let prior = req.raw["prior_results"]
             .as_array()
             .ok_or("missing prior results")?;
-        if !super::prior_impacts_match(prior, &req.raw["impact"]) || parsed.delta != req.delta {
+        if !super::prior_impacts_match(prior, &req.raw["impact"])
+            || crate::verified_graph::admit_delta(&req.delta, &parsed.delta).is_err()
+        {
             return Err("E_IMPACT: missing or conflicting bound FILEMAP output".into());
         }
         let impact = crate::summarize(parsed);

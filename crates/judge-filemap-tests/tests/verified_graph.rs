@@ -350,6 +350,12 @@ fn cost_preparation_binds_prior_impacts_and_registration_reply() {
         prepare(json!([matched]), &json!([]), "complete")["result"]["Err"],
         binding_error
     );
+    let mut conflicting_delta = impact["delta"].clone();
+    conflicting_delta[0]["old_mode"] = json!("100755");
+    assert_eq!(
+        prepare(json!([matched]), &conflicting_delta, "complete")["result"]["Err"],
+        binding_error
+    );
     let response = |case| prepare(json!([matched]), &impact["delta"], case);
     assert_eq!(
         response("wrong")["result"]["Err"],
@@ -372,6 +378,38 @@ fn cost_preparation_binds_prior_impacts_and_registration_reply() {
         );
         assert_eq!(out["outputs"], json!({}));
     }
+}
+
+#[cfg(all(test, not(verus_keep_ghost)))]
+#[test]
+fn findings_keep_the_first_workflow_declaration_of_the_same_edge() {
+    use serde_json::json;
+
+    let mut endpoints = support::views("standard", "standard");
+    endpoints.candidate.workflow["stability"] = json!([
+        {"id":"hold","paths":["src.bin"],"tests":["missing"]},
+        {"id":"also-hold","paths":["src.bin"],"tests":["missing"]}
+    ]);
+    let delta = [support::delta("src.bin")];
+    let (impact, findings) = chrono_judge_filemap::produce(
+        &endpoints,
+        &delta,
+        support_classification::reply(&["src.bin"]),
+    );
+    let finding = findings
+        .iter()
+        .find(|f| f.code == "E_DANGLING_EDGE")
+        .unwrap();
+    assert_eq!(
+        finding.delta_refs,
+        ["/registries/candidate/workflow/stability/0"]
+    );
+    assert!(
+        impact
+            .seed_causes
+            .iter()
+            .any(|seed| seed.reference == "/impact/workflow/requirements/0")
+    );
 }
 
 #[cfg(verus_keep_ghost)]
@@ -1031,6 +1069,125 @@ fn workflow_selection_keeps_the_exact_endpoint_and_delta_paths() {
     let first = paths.contains(&5usize); expect(first);
     let second = paths.contains(&2usize); expect(second);
     assert(paths@ =~= set![2usize, 5usize]);
+}
+
+pub struct WorkflowRow(pub u8);
+
+impl policy::RequirementEdges for WorkflowRow {
+    #[cfg(verus_keep_ghost)]
+    open spec fn contains(&self, edge: &Self) -> bool { self.0 == edge.0 }
+
+    fn contains_edge(&self, edge: &Self) -> (found: bool) {
+        self.0 == edge.0
+    }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn edge_diagnostics_prefer_files_then_the_first_matching_workflow_row() {
+    use policy::{EdgeReference, RequirementEdges, edge_reference};
+    let rows = [WorkflowRow(1), WorkflowRow(2), WorkflowRow(2)];
+    let edge = WorkflowRow(2);
+    let file = edge_reference(Some(11u8), &rows, &edge);
+    expect(matches!(file, EdgeReference::File(11)));
+    let workflow = edge_reference(None::<u8>, &rows, &edge);
+    if let EdgeReference::Workflow(i) = workflow {
+        assert(rows@[i as int].0 == 2);
+        assert(rows@[1].0 == 2);
+        assert(i != 0);
+        assert(i <= 1);
+        expect(i == 1);
+    } else {
+        assert(rows@[1].contains(&edge));
+        assert(false);
+        panic!();
+    }
+    let project = edge_reference(None::<u8>, &rows, &WorkflowRow(3));
+    if let EdgeReference::Workflow(i) = project {
+        assert(rows@[i as int].0 == 3);
+        if i == 0 {} else if i == 1 {} else { assert(i == 2); }
+        assert(false);
+    }
+    expect(matches!(project, EdgeReference::Project));
+}
+
+pub struct RecordRows(pub String);
+pub struct NodeId;
+
+impl policy::RecordTargets for RecordRows {
+    #[cfg(verus_keep_ghost)]
+    open spec fn targets(&self) -> Seq<String> { seq![self.0] }
+
+    fn target_rows(&self) -> (out: Vec<&String>) {
+        let mut out = Vec::new();
+        out.push(&self.0);
+        assert(out@.map_values(|row: &String| *row) =~= seq![self.0]);
+        out
+    }
+}
+
+impl policy::SeedEncoder for NodeId {
+    #[cfg(verus_keep_ghost)]
+    open spec fn encoded(&self, _reference: Seq<char>, _reason: Seq<char>, node: Seq<char>) -> Seq<char> { node }
+
+    fn encode(&self, fields: [&str; 3]) -> (out: String) {
+        fields[2].to_owned()
+    }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn changed_records_seed_old_and_new_consumers_but_unchanged_records_seed_neither() {
+    let base = RecordRows("old".to_owned());
+    let candidate = RecordRows("new".to_owned());
+    let mut seeds = std::collections::BTreeSet::new();
+    let mut fields = Vec::new();
+    let unchanged = policy::register_record_change(
+        &mut fields, &mut seeds, &NodeId, "/record", Some(("before", &base)), Some(("before", &candidate)),
+    );
+    expect(!unchanged);
+    proof {
+        assert(seeds@.map(|row: policy::Seed| policy::seed_fields(row)) =~= Set::<policy::SeedFields>::empty());
+        if !seeds@.is_empty() {
+            let row = choose|row: policy::Seed| seeds@.contains(row);
+            assert(seeds@.map(|row: policy::Seed| policy::seed_fields(row)).contains(policy::seed_fields(row)));
+        }
+        assert(seeds@.is_empty());
+    }
+    let empty = seeds.is_empty(); expect(empty);
+    proof {
+        reveal_strlit("before"); reveal_strlit("after");
+        assert("before"@.len() != "after"@.len());
+        assert("before"@ != "after"@);
+    }
+    let changed = policy::register_record_change(
+        &mut fields, &mut seeds, &NodeId, "/record", Some(("before", &base)), Some(("after", &candidate)),
+    );
+    expect(changed);
+    let count = fields.len(); expect(count == 1);
+    let old = seed("old", "old", "/record", "record-change");
+    let new = seed("new", "new", "/record", "record-change");
+    proof {
+        use policy::RecordTargets;
+        let a = policy::record_seed_fields(&NodeId, "/record"@, base.targets());
+        let b = policy::record_seed_fields(&NodeId, "/record"@, candidate.targets());
+        assert(base.targets().map_values(|target: String| policy::encoded_fields(
+            &NodeId, target@, "/record"@, "record-change"@)) =~= seq![policy::seed_fields(old)]);
+        assert(candidate.targets().map_values(|target: String| policy::encoded_fields(
+            &NodeId, target@, "/record"@, "record-change"@)) =~= seq![policy::seed_fields(new)]);
+        let empty = Seq::<policy::SeedFields>::empty();
+        assert(empty.to_set() =~= Set::<policy::SeedFields>::empty());
+        empty.lemma_push_to_set_commute(policy::seed_fields(old));
+        empty.lemma_push_to_set_commute(policy::seed_fields(new));
+        assert(empty.push(policy::seed_fields(old)) =~= seq![policy::seed_fields(old)]);
+        assert(empty.push(policy::seed_fields(new)) =~= seq![policy::seed_fields(new)]);
+        assert(a =~= set![policy::seed_fields(old)]);
+        assert(b =~= set![policy::seed_fields(new)]);
+        let actual = seeds@.map(|row: policy::Seed| policy::seed_fields(row));
+        assert(actual.contains(policy::seed_fields(old)));
+        assert(actual.contains(policy::seed_fields(new)));
+        let a = choose|row: policy::Seed| seeds@.contains(row) && policy::seed_fields(row) == policy::seed_fields(old);
+        let b = choose|row: policy::Seed| seeds@.contains(row) && policy::seed_fields(row) == policy::seed_fields(new);
+        assert(a.same(&old) && b.same(&new));
+    }
 }
 
 /// Bits name File, Project, Script, Input, Test, Judge, Tool and Environment.

@@ -30,7 +30,7 @@ pub use self::{
     adapter_fields::{FieldDifference, field_difference},
     adapter_json::diagnostic,
     adapter_output::{evaluated_status, required_names},
-    adapter_workflow::{RequirementEdges, first_requirement},
+    adapter_workflow::{EdgeReference, RequirementEdges, edge_reference, first_requirement},
 };
 #[cfg(not(verus_keep_ghost))]
 pub use crate::{
@@ -38,7 +38,7 @@ pub use crate::{
     records::{FieldDifference, field_difference},
     required_names,
     strict_json::diagnostic,
-    workflow::{RequirementEdges, first_requirement},
+    workflow::{EdgeReference, RequirementEdges, edge_reference, first_requirement},
 };
 
 #[cfg(verus_keep_ghost)]
@@ -2592,6 +2592,100 @@ pub fn insert_delta_seeds(seeds: &mut BTreeSet<Seed>, delta: &[Delta], encoder: 
         at += 1;
     }
     assert(delta@.take(at as int) =~= delta@);
+}
+
+pub trait RecordTargets {
+    spec fn targets(&self) -> Seq<String>;
+    fn target_rows(&self) -> (rows: Vec<&String>)
+        ensures rows@.map_values(|row: &String| *row) == self.targets();
+}
+
+pub open spec fn record_seed_fields(encoder: &impl SeedEncoder, reference: Seq<char>, targets: Seq<String>)
+    -> Set<SeedFields>
+{
+    targets.map_values(|target: String| encoded_fields(encoder, target@, reference, "record-change"@)).to_set()
+}
+
+fn insert_record_seeds(
+    seeds: &mut BTreeSet<Seed>, encoder: &impl SeedEncoder, reference: &str, targets: &impl RecordTargets,
+)
+    ensures seeds@.map(|seed: Seed| seed_fields(seed)) ==
+        old(seeds)@.map(|seed: Seed| seed_fields(seed)) + record_seed_fields(encoder, reference@, targets.targets()),
+{
+    let ghost before = seeds@.map(|seed: Seed| seed_fields(seed));
+    let rows = targets.target_rows();
+    let ghost contents = rows@.map_values(|row: &String| *row);
+    for i in 0..rows.len()
+        invariant contents == rows@.map_values(|row: &String| *row), contents == targets.targets(),
+            seeds@.map(|seed: Seed| seed_fields(seed)) ==
+                before + record_seed_fields(encoder, reference@, contents.take(i as int)),
+    {
+        let target = rows[i];
+        insert_seed(seeds, encoder, target.clone(), reference.to_owned(), "record-change");
+        proof {
+            let prefix = contents.take(i as int);
+            let key = encoded_fields(encoder, target@, reference@, "record-change"@);
+            assert(contents[i as int] == *target);
+            assert(contents.take(i as int + 1) =~= prefix.push(*target));
+            let fields = prefix.map_values(|node: String| encoded_fields(encoder, node@, reference@, "record-change"@));
+            assert(prefix.push(*target).map_values(|node: String| encoded_fields(encoder, node@, reference@, "record-change"@))
+                =~= fields.push(key));
+            fields.lemma_push_to_set_commute(key);
+            assert(seeds@.map(|seed: Seed| seed_fields(seed)) =~=
+                before + record_seed_fields(encoder, reference@, contents.take(i as int + 1)));
+        }
+    }
+    assert(contents.take(rows.len() as int) =~= contents);
+}
+
+pub open spec fn record_targets<T: RecordTargets>(record: Option<(&str, &T)>) -> Seq<String> {
+    match record { Some((_, targets)) => targets.targets(), None => Seq::empty() }
+}
+
+pub open spec fn different_record_paths<T>(
+    base: Option<(&str, &T)>, candidate: Option<(&str, &T)>,
+) -> bool {
+    match (base, candidate) { (Some((a, _)), Some((b, _))) => a@ != b@, _ => false }
+}
+
+/// A value difference or registry move seeds every consumer at both endpoints.
+pub fn register_record_change<T: RecordTargets>(
+    fields: &mut Vec<String>, seeds: &mut BTreeSet<Seed>, encoder: &impl SeedEncoder, reference: &str,
+    base: Option<(&str, &T)>, candidate: Option<(&str, &T)>,
+) -> (changed: bool)
+    ensures
+        changed == (old(fields).len() != 0 || different_record_paths(base, candidate)),
+        if different_record_paths(base, candidate) {
+            fields.len() == old(fields).len() + 1 && fields@.drop_last() == old(fields)@
+                && fields@.last()@ == "/$registry_path"@
+        } else { fields@ == old(fields)@ },
+        seeds@.map(|seed: Seed| seed_fields(seed)) == old(seeds)@.map(|seed: Seed| seed_fields(seed))
+            + if changed {
+                record_seed_fields(encoder, reference@, record_targets(base))
+                + record_seed_fields(encoder, reference@, record_targets(candidate))
+            } else { Set::empty() },
+{
+    let changed = register_path_change(fields,
+        match base { Some((path, _)) => Some(path), None => None },
+        match candidate { Some((path, _)) => Some(path), None => None });
+    if changed {
+        let ghost before = seeds@.map(|seed: Seed| seed_fields(seed));
+        if let Some((_, targets)) = base {
+            insert_record_seeds(seeds, encoder, reference, targets);
+        }
+        assert(seeds@.map(|seed: Seed| seed_fields(seed)) =~=
+            before + record_seed_fields(encoder, reference@, record_targets(base)));
+        if let Some((_, targets)) = candidate {
+            insert_record_seeds(seeds, encoder, reference, targets);
+        }
+        assert(seeds@.map(|seed: Seed| seed_fields(seed)) =~= before
+            + (record_seed_fields(encoder, reference@, record_targets(base))
+                + record_seed_fields(encoder, reference@, record_targets(candidate))));
+    } else {
+        assert(seeds@.map(|seed: Seed| seed_fields(seed)) =~=
+            old(seeds)@.map(|seed: Seed| seed_fields(seed)) + Set::empty());
+    }
+    changed
 }
 
 pub fn insert_edge_seeds(seeds: &mut BTreeSet<Seed>, encoder: &impl SeedEncoder, edge: &Edge, reference: &str)

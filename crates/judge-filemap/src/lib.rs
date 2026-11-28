@@ -224,22 +224,14 @@ pub fn produce(
         let bv = b.get(id).map(|r| &r.record);
         let mut fields = vec![];
         records::changed_fields(av.map(|r| &r.value), bv.map(|r| &r.value), "", &mut fields);
-        if verified_graph::register_path_change(
+        if verified_graph::register_record_change(
             &mut fields,
-            av.map(|r| r.path.as_str()),
-            bv.map(|r| r.path.as_str()),
+            &mut seeds,
+            &graph::JsonSeedId,
+            id,
+            av.map(|r| (r.path.as_str(), r)),
+            bv.map(|r| (r.path.as_str(), r)),
         ) {
-            for record in av.into_iter().chain(bv) {
-                for target in &record.targets {
-                    verified_graph::insert_seed(
-                        &mut seeds,
-                        &graph::JsonSeedId,
-                        target.clone(),
-                        id.clone(),
-                        "record-change",
-                    );
-                }
-            }
             changes.push(Change {
                 record: id.clone(),
                 fields,
@@ -273,17 +265,7 @@ pub fn produce(
                     })
             })
         });
-        let reference = file_record
-            .filter(|_| declared_on_file)
-            .or_else(|| workflow::reference(&workflow, e))
-            .unwrap_or_else(|| {
-                format!(
-                    "/records/filemap/project_edges/{}",
-                    records::escape(
-                        &serde_json::to_string(&json!([e.from, e.kind, e.to])).unwrap()
-                    )
-                )
-            });
+        let reference = workflow::reference(&workflow, e, file_record.filter(|_| declared_on_file));
         verified_graph::insert_edge_seeds(&mut seeds, &graph::JsonSeedId, e, &reference);
     }
     let seeds: Vec<_> = seeds.into_iter().collect();
@@ -413,7 +395,7 @@ pub fn produce(
                 &declared_be
             };
             let from = inventory.get(&edge.from).or_else(|| {
-                if !declared.contains(edge) && workflow::reference(&workflow, edge).is_some() {
+                if !declared.contains(edge) {
                     an.get(&edge.from).or_else(|| bn.get(&edge.from))
                 } else {
                     None
